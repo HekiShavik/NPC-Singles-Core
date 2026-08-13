@@ -7,3 +7,7 @@ Shared engine for NP Singles WooCommerce integrations.
 Core now owns the shared AdminController and ProductImportService workflows in addition to the existing cache, HTTP, product index, inventory history and admin shell.
 
 Game integrations remain responsible for their own API/data source, card normalization, finish rules, ProductBuilder, SKU conventions and game-specific UI details. Thin compatibility adapters keep the existing PSW/LSW class names stable while delegating to Core.
+
+## 0.6.0
+- Shared LocalCardIndex table for game-neutral local printing search.
+- Generic LocalCardSearchController for game plugins.

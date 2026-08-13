@@ -2,13 +2,13 @@
 /**
  * Plugin Name: NP Singles Core
  * Description: Fælles kerne og registry for NP Singles-integrationer til WooCommerce.
- * Version: 0.5.0
+ * Version: 0.6.0
  * Requires Plugins: woocommerce
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('NPS_CORE_VERSION', '0.5.0');
+define('NPS_CORE_VERSION', '0.6.0');
 define('NPS_CORE_DIR', plugin_dir_path(__FILE__));
 define('NPS_CORE_URL', plugin_dir_url(__FILE__));
 
@@ -21,8 +21,14 @@ spl_autoload_register(function ($class) {
     if (is_file($path)) require_once $path;
 });
 
+register_activation_hook(__FILE__, static function (): void {
+    \NPS\Core\LocalCardIndex::install();
+});
+
 add_action('plugins_loaded', function () {
     if (!class_exists('WooCommerce')) return;
+
+    \NPS\Core\LocalCardIndex::install();
 
     /**
      * Fires when NP Singles Core is ready and integrations may register.
