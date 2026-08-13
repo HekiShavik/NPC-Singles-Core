@@ -64,15 +64,18 @@ final class InventoryHistoryPage
             $message = 'Rollback fejlede: ' . $e->getMessage();
         }
 
+        $historyBaseUrl = $this->config['history_base_url'] ?? null;
+        $baseUrl = is_callable($historyBaseUrl)
+            ? (string)$historyBaseUrl()
+            : admin_url('edit.php?post_type=product&page=' . rawurlencode((string)$this->config['history_slug']));
+
         $url = add_query_arg([
-            'post_type' => 'product',
-            'page' => (string)$this->config['history_slug'],
             'setId' => $set_id,
             'paged' => $paged,
             'perPage' => $per_page,
             $this->noticeKey() => $message,
             $this->noticeTypeKey() => $ok ? 'success' : 'error',
-        ], admin_url('edit.php'));
+        ], $baseUrl);
 
         wp_safe_redirect($url);
         exit;

@@ -11,8 +11,6 @@ final class AdminRouter
     private object $settingsPage;
     private InventoryHistoryPage $historyPage;
     private array $config;
-    /** @var array<string,callable> */
-    private array $pageAssetCallbacks = [];
 
     public function __construct(AdminAssets $assets, object $adminPage, object $settingsPage, InventoryHistoryPage $historyPage, array $config)
     {
@@ -25,92 +23,104 @@ final class AdminRouter
 
     public function init(): void
     {
-        add_action('admin_menu', [$this, 'menu']);
-        add_action('admin_enqueue_scripts', [$this, 'enqueuePageAssets'], 20);
+        AdminHub::instance()->register($this);
+        add_action('admin_init', [$this, 'legacyRedirect']);
     }
 
-    public function menu(): void
+    public function gameId(): string
     {
-        $bulkLabel = (string)$this->config['bulk_label'];
-        $bulkSlug = (string)$this->config['bulk_slug'];
-        $historyTitle = (string)$this->config['history_title'];
-        $historyLabel = (string)$this->config['history_label'];
-        $historySlug = (string)$this->config['history_slug'];
-        $settingsTitle = (string)$this->config['settings_title'];
-        $settingsLabel = (string)$this->config['settings_label'];
-        $settingsSlug = (string)$this->config['settings_slug'];
-        $nonceAction = (string)$this->config['nonce_action'];
-        $globalName = (string)$this->config['global_name'];
-
-        $bulkHook = add_submenu_page(
-            'edit.php?post_type=product',
-            $bulkLabel,
-            $bulkLabel,
-            'manage_woocommerce',
-            $bulkSlug,
-            [$this->adminPage, 'render']
-        );
-        $this->assets->registerHook($bulkHook);
-        $this->pageAssetCallbacks[$bulkHook] = function () use ($globalName, $nonceAction, $historySlug): void {
-            wp_localize_script($this->assets->handle(), $globalName, [
-                'ajaxUrl' => admin_url('admin-ajax.php'),
-                'nonce' => wp_create_nonce($nonceAction),
-                'historyUrl' => admin_url('edit.php?post_type=product&page=' . rawurlencode($historySlug)),
-            ]);
-        };
-
-        $historyHook = add_submenu_page(
-            'edit.php?post_type=product',
-            $historyTitle,
-            $historyLabel,
-            'manage_woocommerce',
-            $historySlug,
-            [$this->historyPage, 'render']
-        );
-        $this->assets->registerHook($historyHook);
-        $this->pageAssetCallbacks[$historyHook] = function () use ($globalName, $nonceAction, $historySlug): void {
-            wp_localize_script($this->assets->handle(), $globalName, [
-                'ajaxUrl' => admin_url('admin-ajax.php'),
-                'nonce' => wp_create_nonce($nonceAction),
-                'historyUrl' => admin_url('edit.php?post_type=product&page=' . rawurlencode($historySlug)),
-            ]);
-        };
-
-        $settingsHook = add_options_page(
-            $settingsTitle,
-            $settingsLabel,
-            'manage_woocommerce',
-            $settingsSlug,
-            [$this->settingsPage, 'render']
-        );
-        $this->assets->registerHook($settingsHook);
-        $this->pageAssetCallbacks[$settingsHook] = function () use ($nonceAction): void {
-            $settingsHandle = (string)$this->config['settings_script_handle'];
-            $settingsFile = ltrim((string)$this->config['settings_script_file'], '/');
-            $pluginDir = rtrim((string)$this->config['plugin_dir'], '/\\') . '/';
-            $pluginUrl = rtrim((string)$this->config['plugin_url'], '/') . '/';
-            $settingsGlobal = (string)$this->config['settings_global_name'];
-            $path = $pluginDir . $settingsFile;
-
-            if (is_file($path)) {
-                wp_enqueue_script($settingsHandle, $pluginUrl . $settingsFile, ['jquery'], filemtime($path), true);
-                wp_localize_script($settingsHandle, $settingsGlobal, [
-                    'ajaxUrl' => admin_url('admin-ajax.php'),
-                    'nonce' => wp_create_nonce($nonceAction),
-                ]);
-            }
-        };
+        return sanitize_key((string)($this->config['game_id'] ?? ''));
     }
 
-    public function enqueuePageAssets(string $hook): void
+    public function gameLabel(): string
+    {
+        return (string)($this->config['game_label'] ?? $this->config['bulk_label'] ?? $this->gameId());
+    }
+
+    public function gameOrder(): int
+    {
+        return (int)($this->config['game_order'] ?? 100);
+    }
+
+    public function renderBulk(): void { $this->adminPage->render(); }
+    public function renderSettings(): void { $this->settingsPage->render(); }
+    public function renderHistory(): void { $this->historyPage->render(); }
+
+    public function enqueueForHub(string $section): void
     {
         $debug = $this->config['debug'] ?? null;
         if (is_callable($debug)) {
-            $debug('enqueue_page_assets', ['hook' => $hook]);
+            $debug('enqueue_hub_assets', ['section' => $section, 'game' => $this->gameId()]);
         }
 
-        if (isset($this->pageAssetCallbacks[$hook])) {
-            ($this->pageAssetCallbacks[$hook])();
+        $this->assets->enqueueFiles($section === 'bulk');
+
+        $nonceAction = (string)$this->config['nonce_action'];
+        $globalName = (string)$this->config['global_name'];
+
+        if ($section === 'bulk') {
+            wp_localize_script($this->assets->handle(), $globalName, [
+                'ajaxUrl' => admin_url('admin-ajax.php'),
+                'nonce' => wp_create_nonce($nonceAction),
+                'historyUrl' => AdminHub::historyUrl($this->gameId()),
+            ]);
+            return;
+        }
+
+        if ($section === 'settings') {
+            $this->enqueueSettingsScript($nonceAction);
+        }
+    }
+
+    /** Keep old bookmarks usable without duplicate menu items. */
+    public function legacyRedirect(): void
+    {
+        if (!is_admin() || !current_user_can('manage_woocommerce')) return;
+
+        $page = isset($_GET['page']) ? sanitize_key(wp_unslash((string)$_GET['page'])) : '';
+        if ($page === '') return;
+
+        $bulkSlug = sanitize_key((string)($this->config['bulk_slug'] ?? ''));
+        $historySlug = sanitize_key((string)($this->config['history_slug'] ?? ''));
+        $settingsSlug = sanitize_key((string)($this->config['settings_slug'] ?? ''));
+
+        if ($page === $bulkSlug && $bulkSlug !== '') {
+            wp_safe_redirect(AdminHub::gameUrl($this->gameId()));
+            exit;
+        }
+
+        if ($page === $historySlug && $historySlug !== '') {
+            $url = AdminHub::historyUrl($this->gameId());
+            foreach (['setId', 'paged', 'perPage'] as $key) {
+                if (isset($_GET[$key])) {
+                    $url = add_query_arg($key, sanitize_text_field(wp_unslash((string)$_GET[$key])), $url);
+                }
+            }
+            wp_safe_redirect($url);
+            exit;
+        }
+
+        if ($page === $settingsSlug && $settingsSlug !== '') {
+            wp_safe_redirect(AdminHub::settingsUrl($this->gameId()));
+            exit;
+        }
+    }
+
+    private function enqueueSettingsScript(string $nonceAction): void
+    {
+        $settingsHandle = (string)$this->config['settings_script_handle'];
+        $settingsFile = ltrim((string)$this->config['settings_script_file'], '/');
+        $pluginDir = rtrim((string)$this->config['plugin_dir'], '/\\') . '/';
+        $pluginUrl = rtrim((string)$this->config['plugin_url'], '/') . '/';
+        $settingsGlobal = (string)$this->config['settings_global_name'];
+        $path = $pluginDir . $settingsFile;
+
+        if (is_file($path)) {
+            wp_enqueue_script($settingsHandle, $pluginUrl . $settingsFile, ['jquery'], filemtime($path), true);
+            wp_localize_script($settingsHandle, $settingsGlobal, [
+                'ajaxUrl' => admin_url('admin-ajax.php'),
+                'nonce' => wp_create_nonce($nonceAction),
+            ]);
         }
     }
 }

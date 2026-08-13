@@ -41,7 +41,11 @@ final class AdminAssets
         if (!isset($this->hooks[$hook])) {
             return;
         }
+        $this->enqueueFiles(true);
+    }
 
+    public function enqueueFiles(bool $includeScript = true): void
+    {
         $cssPath = $this->pluginDir . $this->cssFile;
         $jsPath = $this->pluginDir . $this->jsFile;
 
@@ -49,7 +53,7 @@ final class AdminAssets
             wp_enqueue_style($this->handle, $this->pluginUrl . $this->cssFile, [], filemtime($cssPath));
         }
 
-        if (is_file($jsPath)) {
+        if ($includeScript && is_file($jsPath)) {
             wp_enqueue_script($this->handle, $this->pluginUrl . $this->jsFile, ['jquery'], filemtime($jsPath), true);
         }
     }

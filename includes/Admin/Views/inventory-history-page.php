@@ -7,10 +7,11 @@ $rollbackAction = (string)$config['rollback_action'];
 $noncePrefix = (string)$config['rollback_nonce_prefix'];
 $finishLabelCallback = $config['finish_label'] ?? null;
 
-$baseUrl = admin_url('edit.php?post_type=product&page=' . rawurlencode($historySlug));
+$historyBaseUrl = $config['history_base_url'] ?? null;
+$baseUrl = is_callable($historyBaseUrl)
+    ? (string)$historyBaseUrl()
+    : admin_url('edit.php?post_type=product&page=' . rawurlencode($historySlug));
 $currentUrlArgs = [
-    'post_type' => 'product',
-    'page' => $historySlug,
     'setId' => $set_id,
     'perPage' => $per_page,
 ];
@@ -58,8 +59,17 @@ $lineTitle = static function (array $line): string {
 
     <div class="<?php echo esc_attr($cssPrefix); ?>-card <?php echo esc_attr($cssPrefix); ?>-history-page__filters">
         <form method="get" action="<?php echo esc_url(admin_url('edit.php')); ?>">
-            <input type="hidden" name="post_type" value="product">
-            <input type="hidden" name="page" value="<?php echo esc_attr($historySlug); ?>">
+            <?php
+            $baseQuery = wp_parse_url($baseUrl, PHP_URL_QUERY);
+            $baseArgs = [];
+            if (is_string($baseQuery)) {
+                parse_str($baseQuery, $baseArgs);
+            }
+            foreach ($baseArgs as $key => $value):
+                if (!is_scalar($value)) continue;
+            ?>
+                <input type="hidden" name="<?php echo esc_attr((string)$key); ?>" value="<?php echo esc_attr((string)$value); ?>">
+            <?php endforeach; ?>
 
             <label for="<?php echo esc_attr($cssPrefix); ?>_history_set"><strong>Sæt</strong></label>
             <select id="<?php echo esc_attr($cssPrefix); ?>_history_set" name="setId">
@@ -168,8 +178,8 @@ $lineTitle = static function (array $line): string {
         <?php if ($total_pages > 1): ?>
             <div class="tablenav bottom <?php echo esc_attr($cssPrefix); ?>-history-page__pagination"><div class="tablenav-pages">
                 <?php
-                $prevUrl = add_query_arg($currentUrlArgs + ['paged' => max(1, $paged - 1)], admin_url('edit.php'));
-                $nextUrl = add_query_arg($currentUrlArgs + ['paged' => min($total_pages, $paged + 1)], admin_url('edit.php'));
+                $prevUrl = add_query_arg($currentUrlArgs + ['paged' => max(1, $paged - 1)], $baseUrl);
+                $nextUrl = add_query_arg($currentUrlArgs + ['paged' => min($total_pages, $paged + 1)], $baseUrl);
                 ?>
                 <span class="pagination-links">
                     <?php if ($paged > 1): ?><a class="button" href="<?php echo esc_url($prevUrl); ?>">‹ Forrige</a><?php else: ?><span class="button disabled">‹ Forrige</span><?php endif; ?>
