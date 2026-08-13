@@ -470,15 +470,12 @@ class InventoryHistory
             $before = (int)get_post_meta($productId, $this->stockMeta, true);
             $target = max(0, (int)$item['qty_before']);
 
-            update_post_meta($productId, '_manage_stock', 'yes');
-            update_post_meta($productId, $this->stockMeta, $target);
-            update_post_meta($productId, $this->stockMeta_STATUS, $target > 0 ? 'instock' : 'outofstock');
+            $createdProduct = (string)$item['action'] === 'created_product';
 
-            if ((string)$item['action'] === 'created_product') {
-                wp_update_post([
-                    'ID' => $productId,
-                    'post_status' => 'draft',
-                ]);
+            if (!$createdProduct) {
+                update_post_meta($productId, '_manage_stock', 'yes');
+                update_post_meta($productId, $this->stockMeta, $target);
+                update_post_meta($productId, '_stock_status', $target > 0 ? 'instock' : 'outofstock');
             }
 
             $this->insertLine($rollbackTxId, [
@@ -494,14 +491,31 @@ class InventoryHistory
                 'meta' => [
                     'rollback_of' => $transactionId,
                     'original_line_ids' => (array)$item['line_ids'],
+                    'product_deleted' => $createdProduct,
                 ],
             ]);
+
+            if ($createdProduct) {
+                // The product did not exist before the original transaction. Restoring
+                // the pre-transaction state therefore means removing it completely.
+                // We deliberately call WordPress directly here, so this rollback-internal
+                // deletion does not create a new normal inventory-history transaction.
+                $deleted = wp_delete_post($productId, true);
+                if (!$deleted) {
+                    return [
+                        'ok' => false,
+                        'message' => 'Rollback kunne ikke fjerne en vare, som blev oprettet af transaktionen.',
+                        'product_id' => $productId,
+                    ];
+                }
+            }
 
             $changed[] = [
                 'product_id' => $productId,
                 'card' => $this->lineTitle($item),
                 'qty_before' => $before,
                 'qty_after' => $target,
+                'deleted' => $createdProduct,
             ];
         }
 
