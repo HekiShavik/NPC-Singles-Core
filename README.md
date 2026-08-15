@@ -16,3 +16,6 @@ Game integrations remain responsible for their own API/data source, card normali
 - Offentligt game-agnostisk `CardCatalog` over den delte `LocalCardIndex`.
 - `nps_core_get_card()` og `nps_core_search_cards()` til add-ons som Pricing.
 - Struktureret opslag på stabile game/card-ID'er, navn, sæt og collector number.
+
+## 0.7.1
+- Singles-hubben husker senest valgte game_id pr. WordPress-bruger via user meta og bruger det som standard ved næste besøg.

@@ -7,6 +7,7 @@ if (!defined('ABSPATH')) exit;
 final class AdminHub
 {
     public const PAGE_SLUG = 'nps-singles';
+    private const LAST_GAME_META = '_nps_singles_last_game';
 
     private static ?self $instance = null;
 
@@ -176,20 +177,43 @@ final class AdminHub
     {
         $ids = array_keys($this->sortedRouters());
         $first = $ids[0] ?? '';
+        $remembered = $this->rememberedGameId($first);
         $tab = isset($_GET['tab']) ? sanitize_key(wp_unslash((string)$_GET['tab'])) : '';
 
         if ($tab === 'settings' || $tab === 'history') {
-            $gameId = isset($_GET['game']) ? sanitize_key(wp_unslash((string)$_GET['game'])) : $first;
+            $gameId = isset($_GET['game']) ? sanitize_key(wp_unslash((string)$_GET['game'])) : $remembered;
             if (!isset($this->routers[$gameId])) {
-                $gameId = $first;
+                $gameId = $remembered;
             }
+            $this->rememberGameId($gameId);
             return [$tab, $gameId];
         }
 
         if ($tab !== '' && isset($this->routers[$tab])) {
+            $this->rememberGameId($tab);
             return ['bulk', $tab];
         }
 
-        return ['bulk', $first];
+        return ['bulk', $remembered];
+    }
+
+    private function rememberedGameId(string $fallback): string
+    {
+        $userId = get_current_user_id();
+        if ($userId <= 0) return $fallback;
+
+        $gameId = sanitize_key((string)get_user_meta($userId, self::LAST_GAME_META, true));
+        return $gameId !== '' && isset($this->routers[$gameId]) ? $gameId : $fallback;
+    }
+
+    private function rememberGameId(string $gameId): void
+    {
+        $gameId = sanitize_key($gameId);
+        $userId = get_current_user_id();
+        if ($userId <= 0 || $gameId === '' || !isset($this->routers[$gameId])) return;
+
+        if ((string)get_user_meta($userId, self::LAST_GAME_META, true) !== $gameId) {
+            update_user_meta($userId, self::LAST_GAME_META, $gameId);
+        }
     }
 }
