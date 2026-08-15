@@ -11,3 +11,8 @@ Game integrations remain responsible for their own API/data source, card normali
 ## 0.6.0
 - Shared LocalCardIndex table for game-neutral local printing search.
 - Generic LocalCardSearchController for game plugins.
+
+## 0.7.0
+- Offentligt game-agnostisk `CardCatalog` over den delte `LocalCardIndex`.
+- `nps_core_get_card()` og `nps_core_search_cards()` til add-ons som Pricing.
+- Struktureret opslag på stabile game/card-ID'er, navn, sæt og collector number.

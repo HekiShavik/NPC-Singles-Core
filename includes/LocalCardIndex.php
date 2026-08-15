@@ -224,4 +224,118 @@ final class LocalCardIndex
         unset($row);
         return $rows;
     }
+    /** @return array<string,mixed>|null */
+    public function get(string $gameId, string $cardId): ?array
+    {
+        global $wpdb;
+        $row = $wpdb->get_row($wpdb->prepare(
+            "SELECT card_id, card_name, set_id, set_name, collector_number, language, rarity,
+                    image_url, image_back_url, finishes, release_date, payload
+             FROM " . self::tableName() . " WHERE game_id = %s AND card_id = %s LIMIT 1",
+            sanitize_key($gameId), sanitize_text_field($cardId)
+        ), ARRAY_A);
+        return is_array($row) ? $this->hydrateRow(sanitize_key($gameId), $row) : null;
+    }
+
+    /**
+     * Structured, game-neutral card lookup.
+     * Criteria: card_id, name/card_name, set_id, set_name, card_number/collector_number, language.
+     * @param array<string,mixed> $criteria
+     * @return array<int,array<string,mixed>>
+     */
+    public function searchCriteria(string $gameId, array $criteria, int $limit = 25): array
+    {
+        global $wpdb;
+        $gameId = sanitize_key($gameId);
+        if ($gameId === '') return [];
+        $limit = max(1, min(100, $limit));
+
+        $cardId = trim((string)($criteria['card_id'] ?? ''));
+        if ($cardId !== '') {
+            $row = $this->get($gameId, $cardId);
+            return $row ? [$row] : [];
+        }
+
+        $name = trim((string)($criteria['name'] ?? $criteria['card_name'] ?? ''));
+        $setId = trim((string)($criteria['set_id'] ?? ''));
+        $setName = trim((string)($criteria['set_name'] ?? $criteria['set'] ?? ''));
+        $number = trim((string)($criteria['card_number'] ?? $criteria['collector_number'] ?? $criteria['number'] ?? ''));
+        $language = strtoupper(trim((string)($criteria['language'] ?? '')));
+
+        $where = ['game_id = %s'];
+        $args = [$gameId];
+        if ($setId !== '') { $where[] = 'set_id = %s'; $args[] = $setId; }
+        if ($number !== '') {
+            $numerator = trim(explode('/', $number, 2)[0]);
+            $where[] = '(collector_number = %s OR collector_number LIKE %s)';
+            $args[] = $number; $args[] = $numerator . '/%';
+        }
+        // Collector number is the strongest cross-provider discriminator. When it is
+        // available, keep name/set as scoring signals rather than hard SQL filters;
+        // older index snapshots may not contain every descriptive field.
+        if ($number === '') {
+            if ($setName !== '') { $where[] = 'set_name LIKE %s'; $args[] = '%' . $wpdb->esc_like($setName) . '%'; }
+            if ($name !== '') { $where[] = 'card_name LIKE %s'; $args[] = '%' . $wpdb->esc_like($name) . '%'; }
+        }
+        if ($language !== '') { $where[] = '(language = %s OR language = \'\')'; $args[] = $language; }
+
+        if (count($where) === 1) return [];
+        $sql = "SELECT card_id, card_name, set_id, set_name, collector_number, language, rarity,
+                       image_url, image_back_url, finishes, release_date, payload
+                FROM " . self::tableName() . " WHERE " . implode(' AND ', $where) . " LIMIT %d";
+        $args[] = $limit * 4;
+        $rows = $wpdb->get_results($wpdb->prepare($sql, ...$args), ARRAY_A) ?: [];
+        $out = [];
+        foreach ($rows as $row) {
+            $row = $this->hydrateRow($gameId, $row);
+            $score = 0.0;
+            if ($number !== '' && $this->normNumber($number) === $this->normNumber((string)$row['card_number'])) $score += 0.45;
+            if ($setName !== '' && $this->norm($setName) === $this->norm((string)$row['set_name'])) $score += 0.30;
+            if ($name !== '' && $this->norm($name) === $this->norm((string)$row['name'])) $score += 0.25;
+            if ($setId !== '' && $setId === (string)$row['set_id']) $score += 0.30;
+            $row['match_score'] = min(1.0, $score);
+            $out[] = $row;
+        }
+        usort($out, static fn(array $a, array $b): int => (($b['match_score'] ?? 0) <=> ($a['match_score'] ?? 0)) ?: strnatcasecmp((string)$a['card_number'], (string)$b['card_number']));
+        return array_slice($out, 0, $limit);
+    }
+
+    public function deleteSet(string $gameId, string $setId): int
+    {
+        global $wpdb;
+        return (int)$wpdb->delete(self::tableName(), ['game_id'=>sanitize_key($gameId), 'set_id'=>sanitize_text_field($setId)], ['%s','%s']);
+    }
+
+    /** @return array<string,mixed> */
+    private function hydrateRow(string $gameId, array $row): array
+    {
+        $finishes = json_decode((string)($row['finishes'] ?? ''), true);
+        $payload = json_decode((string)($row['payload'] ?? ''), true);
+        return [
+            'game_id'=>$gameId,
+            'card_id'=>(string)($row['card_id'] ?? ''),
+            'name'=>(string)($row['card_name'] ?? ''),
+            'set_id'=>(string)($row['set_id'] ?? ''),
+            'set_name'=>(string)($row['set_name'] ?? ''),
+            'card_number'=>(string)($row['collector_number'] ?? ''),
+            'language'=>(string)($row['language'] ?? ''),
+            'rarity'=>(string)($row['rarity'] ?? ''),
+            'image_url'=>(string)($row['image_url'] ?? ''),
+            'image_back_url'=>(string)($row['image_back_url'] ?? ''),
+            'finishes'=>is_array($finishes) ? $finishes : [],
+            'release_date'=>(string)($row['release_date'] ?? ''),
+            'payload'=>is_array($payload) ? $payload : [],
+        ];
+    }
+
+    private function norm(string $value): string
+    {
+        return (string)preg_replace('/[^a-z0-9]+/u', '', strtolower(remove_accents(trim($value))));
+    }
+
+    private function normNumber(string $value): string
+    {
+        return $this->norm(explode('/', trim($value), 2)[0]);
+    }
+
 }
