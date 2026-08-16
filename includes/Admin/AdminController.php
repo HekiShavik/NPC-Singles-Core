@@ -35,6 +35,7 @@ class AdminController
         $this->history = $history;
         $this->config = array_merge([
             "nonce_action" => "nps_nonce",
+            "game_id" => "",
             "settings_url" => admin_url("admin.php?page=nps-settings"),
             "canonical_finish" => static fn(string $finish): string => $finish,
             "display_card_name" => static fn(array $snap): string => (string)($snap["name"] ?? ""),
@@ -70,6 +71,7 @@ class AdminController
                     'ptcgoCode' => (string)($s['ptcgoCode'] ?? ''),
                     'series' => (string)($s['series'] ?? ''),
                     'releaseDate' => (string)($s['releaseDate'] ?? ''),
+                    'cardCount' => isset($s['cardCount']) && is_numeric($s['cardCount']) ? (int)$s['cardCount'] : null,
                     'images' => [
                         'symbol' => (string)($s['images']['symbol'] ?? ''),
                         'logo'   => (string)($s['images']['logo'] ?? ''),
@@ -87,6 +89,10 @@ class AdminController
 
         $data = $sets_payload['data'] ?? [];
         $sets = (array)($data['items'] ?? $data);
+        $gameId = sanitize_key((string)($this->config['game_id'] ?? ''));
+        if ($gameId !== '') {
+            $sets = \NPS\Core\SetStatus::instance()->decorateSets($gameId, $sets);
+        }
 
         if ($all) {
             usort($sets, static function ($a, $b) {
@@ -233,6 +239,10 @@ class AdminController
             );
         }
 
+        if ($post_id > 0) {
+            \NPS\Core\SetStatus::instance()->syncProduct($post_id);
+        }
+
         \NPS\Core\Http::ok([
             'message'  => $res['message'] ?? 'Oprettet!',
             'post_id'  => $post_id,
@@ -254,6 +264,10 @@ class AdminController
             \NPS\Core\Http::fail($set_payload['message'] ?? 'Kunne ikke hente set-kort endnu. Prøv igen.', 409, 'cache_miss_existing');
         }
         $cards = (array)($set_payload['data']['cards'] ?? []);
+        $gameId = sanitize_key((string)($this->config['game_id'] ?? ''));
+        if ($gameId !== '' && $cards) {
+            \NPS\Core\SetStatus::instance()->observeSetCards($gameId, $set_id, $cards);
+        }
         if (!$cards) \NPS\Core\Http::ok(['existing' => [], 'counts' => ['draft' => 0, 'publish' => 0, 'other' => 0]]);
 
         $card_ids = array_values(array_filter(array_map(fn($c) => (string)($c['id'] ?? ''), $cards)));
@@ -276,10 +290,16 @@ class AdminController
             \NPS\Core\Http::fail($payload['message'] ?? 'Kunne ikke hente set-kort.', 409, 'cache_miss_set_cards');
         }
 
+        $cards = (array)($payload['data']['cards'] ?? []);
+        $gameId = sanitize_key((string)($this->config['game_id'] ?? ''));
+        if ($gameId !== '') {
+            \NPS\Core\SetStatus::instance()->observeSetCards($gameId, $set_id, $cards);
+        }
+
         \NPS\Core\Http::ok([
             'from_cache' => (bool)($payload['from_cache'] ?? false),
             'ts' => (int)($payload['ts'] ?? 0),
-            'cards' => (array)($payload['data']['cards'] ?? []),
+            'cards' => $cards,
         ]);
     }
 
@@ -342,6 +362,10 @@ class AdminController
 
         // Delegér alt det tunge
         $result = $this->importService->bulkCreate($set_id, is_array($setInfo) ? $setInfo : [], $byId, $norm);
+        foreach ((array)($result['created'] ?? []) as $created) {
+            $pid = (int)($created['post_id'] ?? 0);
+            if ($pid > 0) \NPS\Core\SetStatus::instance()->syncProduct($pid);
+        }
 
         $this->debug('ajax_bulk_create:done', [
             'created' => count($result['created'] ?? []),
@@ -558,6 +582,7 @@ class AdminController
                     'ptcgoCode' => (string)($s['ptcgoCode'] ?? ''),
                     'series' => (string)($s['series'] ?? ''),
                     'releaseDate' => (string)($s['releaseDate'] ?? ''),
+                    'cardCount' => isset($s['cardCount']) && is_numeric($s['cardCount']) ? (int)$s['cardCount'] : null,
                     'images' => [
                         'symbol' => (string)($s['images']['symbol'] ?? ''),
                         'logo'   => (string)($s['images']['logo'] ?? ''),
