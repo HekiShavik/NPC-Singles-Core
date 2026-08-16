@@ -224,6 +224,8 @@ class AdminController
 
         $post_id = (int)($res['post_id'] ?? 0);
         if ($post_id > 0) {
+            \NPS\Core\ProductDefaults::applyWeight($post_id, (string)($this->config['game_id'] ?? ''));
+
             $this->history->recordCreatedProduct(
                 $set_id,
                 $setInfo,

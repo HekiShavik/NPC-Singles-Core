@@ -33,6 +33,7 @@ class ProductImportService
             'display_card_name' => static fn(array $snap): string => (string)($snap['name'] ?? ''),
             'repair_missing_images' => false,
             'track_image_results' => false,
+            'game_id' => '',
         ], $config);
     }
 
@@ -218,6 +219,8 @@ class ProductImportService
                     // Product creation succeeded; SKU conflicts/errors stay non-fatal as before.
                 }
             }
+
+            ProductDefaults::applyWeight($post_id, (string)($this->config['game_id'] ?? ''));
 
             $displayName = $this->config['display_card_name'];
             $this->history->recordCreatedProduct(
