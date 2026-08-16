@@ -15,15 +15,20 @@ final class ProductDefaults
         $value = (float)str_replace(',', '.', trim((string)$raw));
         return $value > 0 ? $value : self::DEFAULT_SINGLE_WEIGHT_KG;
     }
+    public static function storeWeightForGame(string $gameId): string
+    {
+        $kg = self::weightKgForGame($gameId);
+        $unit = (string)get_option('woocommerce_weight_unit', 'kg');
+        $weight = function_exists('wc_get_weight') ? (float)wc_get_weight($kg, $unit, 'kg') : $kg;
+        return (string)wc_format_decimal($weight, 6);
+    }
+
     public static function applyWeight(int $productId, string $gameId): void
     {
         if ($productId <= 0 || $gameId === '') return;
         $product = wc_get_product($productId);
         if (!$product) return;
-        $kg = self::weightKgForGame($gameId);
-        $unit = (string)get_option('woocommerce_weight_unit', 'kg');
-        $weight = function_exists('wc_get_weight') ? (float)wc_get_weight($kg, $unit, 'kg') : $kg;
-        $product->set_weight(wc_format_decimal($weight, 6));
+        $product->set_weight(self::storeWeightForGame($gameId));
         $product->save();
     }
 }

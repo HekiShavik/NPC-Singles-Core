@@ -19,3 +19,8 @@ Game integrations remain responsible for their own API/data source, card normali
 
 ## 0.7.1
 - Singles-hubben husker senest valgte game_id pr. WordPress-bruger via user meta og bruger det som standard ved næste besøg.
+
+## 0.8.2
+- Tilføjer et batch-baseret efterbehandlingsværktøj under hvert spils Singles-indstillinger.
+- Værktøjet anvender spillets aktuelle standardvægt på eksisterende Singles-produkter uden at ændre lager, pris eller status.
+- Jobbet kan genoptages efter en netværksfejl ved at trykke på knappen igen, så længe standardvægten ikke er ændret.

@@ -141,6 +141,7 @@ final class AdminHub
 
         if ($section === 'settings') {
             $router->renderSettings();
+            \NPS\Core\WeightPostProcessor::render($gameId);
         } elseif ($section === 'history') {
             $router->renderHistory();
         } else {
