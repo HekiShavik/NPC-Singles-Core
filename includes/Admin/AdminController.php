@@ -613,4 +613,124 @@ class AdminController
         $callback = $this->config["debug"];
         $callback($message, $context);
     }
+
+    // Optional bridge to NP Singles Pricing. Game plugins may register these
+    // endpoints without requiring the Pricing plugin to be installed.
+    public function ajax_pricing_mapping_candidates(): void
+    {
+        $this->assertPricingRequest();
+        if (!function_exists('npsp_cached_mapping_candidates')) {
+            \NPS\Core\Http::fail('NP Singles Pricing er ikke installeret eller aktivt.', 409, 'pricing_unavailable');
+        }
+        $ref = $this->pricingReferenceFromPost('card');
+        if (!$ref) \NPS\Core\Http::fail('Ugyldig kortdata.', 400, 'pricing_invalid_card');
+        \NPS\Core\Http::ok(npsp_cached_mapping_candidates($ref));
+    }
+
+    public function ajax_pricing_save_mapping(): void
+    {
+        $this->assertPricingRequest();
+        if (!function_exists('npsp_save_cached_mapping')) {
+            \NPS\Core\Http::fail('NP Singles Pricing er ikke installeret eller aktivt.', 409, 'pricing_unavailable');
+        }
+        $ref = $this->pricingReferenceFromPost('card');
+        if (!$ref) \NPS\Core\Http::fail('Ugyldig kortdata.', 400, 'pricing_invalid_card');
+        $providerId = sanitize_key((string)($_POST['provider_id'] ?? ''));
+        $providerCardId = sanitize_text_field((string)($_POST['provider_card_id'] ?? ''));
+        $result = npsp_save_cached_mapping($ref, $providerId, $providerCardId);
+        if (empty($result['ok'])) \NPS\Core\Http::fail((string)($result['message'] ?? 'Mapping kunne ikke gemmes.'), 409, 'pricing_mapping_failed');
+        \NPS\Core\Http::ok($result);
+    }
+
+    public function ajax_pricing_warm(): void
+    {
+        $this->assertPricingRequest();
+        if (!function_exists('npsp_warm_cards')) {
+            \NPS\Core\Http::fail('NP Singles Pricing er ikke installeret eller aktivt.', 409, 'pricing_unavailable');
+        }
+        $refs = $this->pricingReferencesFromPost('cards', false);
+        if (!$refs) \NPS\Core\Http::fail('Ingen gyldige kort valgt.', 400, 'pricing_no_valid_cards');
+        \NPS\Core\Http::ok(npsp_warm_cards($refs, false));
+    }
+
+    public function ajax_pricing_inspect(): void
+    {
+        $this->assertPricingRequest();
+        if (!function_exists('npsp_inspect_prices')) {
+            \NPS\Core\Http::fail('NP Singles Pricing er ikke installeret eller aktivt.', 409, 'pricing_unavailable');
+        }
+        $refs = $this->pricingReferencesFromPost('rows', true);
+        if (!$refs) \NPS\Core\Http::fail('Ingen gyldige rækker.', 400, 'pricing_no_valid_rows');
+        \NPS\Core\Http::ok(npsp_inspect_prices($refs));
+    }
+
+    public function ajax_pricing_suggest(): void
+    {
+        $this->assertPricingRequest();
+        if (!function_exists('npsp_suggest_prices')) {
+            \NPS\Core\Http::fail('NP Singles Pricing er ikke installeret eller aktivt.', 409, 'pricing_unavailable');
+        }
+        $refs = $this->pricingReferencesFromPost('rows', true);
+        if (!$refs) \NPS\Core\Http::fail('Ingen gyldige rækker valgt.', 400, 'pricing_no_valid_rows');
+        \NPS\Core\Http::ok(npsp_suggest_prices($refs));
+    }
+
+    protected function pricingReferenceFromPost(string $field): ?array
+    {
+        $raw = $_POST[$field] ?? '';
+        if (!is_string($raw) || $raw === '') return null;
+        $card = json_decode(wp_unslash($raw), true);
+        return is_array($card) ? $this->normalizePricingReference($card, false) : null;
+    }
+
+    /** @return array<int,array<string,mixed>> */
+    protected function pricingReferencesFromPost(string $field, bool $requireFinish): array
+    {
+        $raw = $_POST[$field] ?? '';
+        if (!is_string($raw) || $raw === '') return [];
+        $items = json_decode(wp_unslash($raw), true);
+        if (!is_array($items)) return [];
+        $refs = [];
+        foreach ($items as $item) {
+            if (!is_array($item)) continue;
+            $ref = $this->normalizePricingReference($item, $requireFinish);
+            if ($ref) $refs[] = $ref;
+        }
+        return $refs;
+    }
+
+    protected function normalizePricingReference(array $card, bool $requireFinish): ?array
+    {
+        $cardId = sanitize_text_field((string)($card['card_id'] ?? ''));
+        $finish = sanitize_text_field((string)($card['finish'] ?? 'normal'));
+        if ($cardId === '' || ($requireFinish && $finish === '')) return null;
+        $gameId = sanitize_key((string)($this->config['game_id'] ?? ''));
+        $provider = $gameId !== '' ? \NPS\Core\Registry::instance()->get($gameId) : null;
+        $gameName = $provider ? $provider->name() : $gameId;
+        return [
+            'product_id' => max(0, (int)($card['product_id'] ?? 0)),
+            'game_id' => $gameId,
+            'game_name' => $gameName,
+            'card_id' => $cardId,
+            'card_name' => sanitize_text_field((string)($card['card_name'] ?? '')),
+            'card_number' => sanitize_text_field((string)($card['card_number'] ?? '')),
+            'set_id' => sanitize_text_field((string)($card['set_id'] ?? '')),
+            'set_name' => sanitize_text_field((string)($card['set_name'] ?? '')),
+            'finish' => $finish !== '' ? $finish : 'normal',
+            'language' => strtoupper(sanitize_text_field((string)($card['language'] ?? 'EN'))),
+            'rarity' => sanitize_text_field((string)($card['rarity'] ?? '')),
+        ];
+    }
+
+    protected function assertPricingRequest(): void
+    {
+        check_ajax_referer((string)$this->config['nonce_action'], 'nonce');
+        if (!current_user_can('manage_woocommerce')) {
+            \NPS\Core\Http::fail('No permission', 403, 'no_access_pricing');
+        }
+        if (!function_exists('npsp_available') || !npsp_available()) {
+            \NPS\Core\Http::fail('NP Singles Pricing er ikke installeret eller aktivt.', 409, 'pricing_unavailable');
+        }
+    }
+
 }
