@@ -276,6 +276,9 @@ class AdminController
         if (!$card_ids) \NPS\Core\Http::ok(['existing' => [], 'counts' => ['draft' => 0, 'publish' => 0, 'other' => 0]]);
 
         $result = $this->productIndex->existingByCardIds($card_ids, $lang);
+        if ($gameId !== '') {
+            $result['setStatus'] = \NPS\Core\SetStatus::instance()->reconcileOpenedSet($gameId, $set_id);
+        }
         \NPS\Core\Http::ok($result);
     }
 
@@ -472,6 +475,7 @@ class AdminController
             \NPS\Core\Http::fail($r->get_error_message(), 500, 'arguments_publish_toggle_stock');
         }
 
+        \NPS\Core\SetStatus::instance()->syncProduct($post_id);
         \NPS\Core\Http::ok(['status' => $next]);
     }
 
@@ -498,6 +502,7 @@ class AdminController
             \NPS\Core\Http::fail($r->get_error_message(), 500, 'error_set_status');
         }
 
+        \NPS\Core\SetStatus::instance()->syncProduct($post_id);
         \NPS\Core\Http::ok(['status' => $status]);
     }
 
@@ -519,6 +524,7 @@ class AdminController
         if ($raw === '') {
             delete_post_meta($post_id, '_regular_price');
             delete_post_meta($post_id, '_price');
+            \NPS\Core\SetStatus::instance()->syncProduct($post_id);
             \NPS\Core\Http::ok(['price' => null]);
         }
 
@@ -532,12 +538,14 @@ class AdminController
                 $p->set_regular_price((string)$price);
                 $p->set_price((string)$price);
                 $p->save();
+                \NPS\Core\SetStatus::instance()->syncProduct($post_id);
                 \NPS\Core\Http::ok(['price' => $price]);
             }
         }
 
         update_post_meta($post_id, '_regular_price', (string)$price);
         update_post_meta($post_id, '_price', (string)$price);
+        \NPS\Core\SetStatus::instance()->syncProduct($post_id);
         \NPS\Core\Http::ok(['price' => $price]);
     }
 
