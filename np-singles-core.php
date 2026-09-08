@@ -2,13 +2,13 @@
 /**
  * Plugin Name: NP Singles Core
  * Description: Fælles kerne og registry for NP Singles-integrationer til WooCommerce.
- * Version: 0.8.7
+ * Version: 0.8.8
  * Requires Plugins: woocommerce
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('NPS_CORE_VERSION', '0.8.7');
+define('NPS_CORE_VERSION', '0.8.8');
 define('NPS_CORE_DIR', plugin_dir_path(__FILE__));
 define('NPS_CORE_URL', plugin_dir_url(__FILE__));
 require_once NPS_CORE_DIR . 'includes/PublicApi.php';
@@ -34,6 +34,7 @@ add_action('plugins_loaded', function () {
     \NPS\Core\SetStatus::boot();
     \NPS\Core\WeightPostProcessor::boot();
     \NPS\Core\WeightDisplay::boot();
+    \NPS\Core\Admin\ImageRepairMediaPolicy::boot();
     \NPS\Core\Admin\ImageRepairTool::boot();
 
     /**
