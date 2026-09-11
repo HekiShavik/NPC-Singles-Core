@@ -122,10 +122,12 @@ final class AdminHub
             );
         }
 
+        $imageAlertHidden = ImageRepairHealth::hasMissingImages() ? '' : ' hidden';
         printf(
-            '<a class="nav-tab%s" href="%s">Indstillinger</a>',
+            '<a class="nav-tab%s nps-settings-tab" href="%s">Indstillinger <span class="nps-settings-alert"%s title="Manglende produktbilleder" aria-label="Manglende produktbilleder" style="color:#d63638;margin-left:4px;">●</span></a>',
             esc_attr($section === 'settings' ? ' nav-tab-active' : ''),
-            esc_url(self::settingsUrl($gameId))
+            esc_url(self::settingsUrl($gameId)),
+            $imageAlertHidden
         );
         printf(
             '<a class="nav-tab%s" href="%s">Historik</a>',
@@ -140,6 +142,7 @@ final class AdminHub
         echo '</div>';
 
         if ($section === 'settings') {
+            ImageRepairHealth::renderSettingsPanel();
             $router->renderSettings();
             \NPS\Core\WeightPostProcessor::render($gameId);
         } elseif ($section === 'history') {
