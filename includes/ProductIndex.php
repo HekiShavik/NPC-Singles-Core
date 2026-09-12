@@ -8,12 +8,23 @@ class ProductIndex
     private string $cardIdMeta;
     private string $finishMeta;
     private string $languageMeta;
+    /** @var array<string,string> */
+    private array $languageAliases;
 
-    public function __construct(string $cardIdMeta, string $finishMeta, string $languageMeta)
+    /**
+     * @param array<string,string> $languageAliases alias => canonical, e.g. ['JP' => 'JA']
+     */
+    public function __construct(string $cardIdMeta, string $finishMeta, string $languageMeta, array $languageAliases = [])
     {
         $this->cardIdMeta = $cardIdMeta;
         $this->finishMeta = $finishMeta;
         $this->languageMeta = $languageMeta;
+        $this->languageAliases = [];
+        foreach ($languageAliases as $alias => $canonical) {
+            $alias = strtoupper(trim((string)$alias));
+            $canonical = strtoupper(trim((string)$canonical));
+            if ($alias !== '' && $canonical !== '') $this->languageAliases[$alias] = $canonical;
+        }
     }
 
     public function existingByCardIds(array $card_ids, string $lang = ''): array
@@ -21,6 +32,7 @@ class ProductIndex
         $card_ids = array_values(array_filter(array_map('strval', $card_ids)));
         if (!$card_ids) return ['existing' => [], 'counts' => ['draft' => 0, 'publish' => 0, 'other' => 0]];
 
+        $requestedLanguage = $this->canonicalLanguage($lang);
         $existing = [];
         $counts = ['draft' => 0, 'publish' => 0, 'other' => 0];
         $rank = static fn(string $st): int => match ($st) {
@@ -47,10 +59,12 @@ class ProductIndex
                 $pid = (int)$pid;
                 $cid = (string)get_post_meta($pid, $this->cardIdMeta, true);
                 $fin = (string)get_post_meta($pid, $this->finishMeta, true);
-                $plg = strtoupper((string)get_post_meta($pid, $this->languageMeta, true));
+                $plg = $this->canonicalLanguage((string)get_post_meta($pid, $this->languageMeta, true));
                 if ($cid === '' || $fin === '' || $plg === '') continue;
-                if ($lang !== '' && strtoupper($lang) !== $plg) continue;
+                if ($requestedLanguage !== '' && $requestedLanguage !== $plg) continue;
 
+                // Use the canonical language in the UI key. This lets a legacy
+                // JP product satisfy a new JA row without rewriting product meta.
                 $key = $cid . '|' . $fin . '|' . $plg;
                 $status = (string)get_post_status($pid);
                 $stock = get_post_meta($pid, '_stock', true);
@@ -84,5 +98,12 @@ class ProductIndex
             else $counts['other']++;
         }
         return ['existing' => $existing, 'counts' => $counts];
+    }
+
+    private function canonicalLanguage(string $language): string
+    {
+        $language = strtoupper(trim($language));
+        if ($language === '') return '';
+        return $this->languageAliases[$language] ?? $language;
     }
 }
