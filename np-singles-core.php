@@ -2,13 +2,13 @@
 /**
  * Plugin Name: NP Singles Core
  * Description: Fælles kerne og registry for NP Singles-integrationer til WooCommerce.
- * Version: 0.8.9
+ * Version: 0.8.10
  * Requires Plugins: woocommerce
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('NPS_CORE_VERSION', '0.8.9');
+define('NPS_CORE_VERSION', '0.8.10');
 define('NPS_CORE_DIR', plugin_dir_path(__FILE__));
 define('NPS_CORE_URL', plugin_dir_url(__FILE__));
 require_once NPS_CORE_DIR . 'includes/PublicApi.php';
