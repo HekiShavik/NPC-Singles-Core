@@ -4,6 +4,7 @@
   if (typeof NPS_CARD_SEARCH === 'undefined') return;
 
   const config = NPS_CARD_SEARCH || {};
+  const SEARCH_DEBOUNCE_MS = 750;
 
   function esc(value) {
     return String(value == null ? '' : value).replace(/[&<>"']/g, ch => ({
@@ -218,12 +219,15 @@
     const status = root.querySelector('.nps-card-search__status');
     const results = root.querySelector('.nps-card-search__results');
     let timer = null;
+    let searchSequence = 0;
 
     async function runSearch() {
       const term = String(input.value || '').trim();
+      const sequence = ++searchSequence;
       if (term.length < 2) {
         results.innerHTML = '';
         status.textContent = 'Skriv mindst 2 tegn.';
+        button.disabled = false;
         return;
       }
 
@@ -231,27 +235,35 @@
       status.textContent = 'Søger lokalt…';
       try {
         const data = await post('nps_local_card_search', { gameId: config.gameId, term });
+        if (sequence !== searchSequence || String(input.value || '').trim() !== term) return;
+
         const items = Array.isArray(data.items) ? data.items : [];
         renderResults(root, items, Number(data.indexed || 0));
         status.textContent = `${items.length} match vist · ${Number(data.indexed || 0).toLocaleString('da-DK')} printings indekseret.`;
       } catch (error) {
+        if (sequence !== searchSequence || String(input.value || '').trim() !== term) return;
         results.innerHTML = '';
         status.textContent = error.message || 'Søgning fejlede.';
       } finally {
-        button.disabled = false;
+        if (sequence === searchSequence) button.disabled = false;
       }
     }
 
-    button.addEventListener('click', runSearch);
+    button.addEventListener('click', () => {
+      window.clearTimeout(timer);
+      runSearch();
+    });
     input.addEventListener('keydown', event => {
       if (event.key !== 'Enter') return;
       event.preventDefault();
+      window.clearTimeout(timer);
       runSearch();
     });
     input.addEventListener('input', () => {
       window.clearTimeout(timer);
+      searchSequence += 1; // Invalidate any slower response for the previous text.
       if (String(input.value || '').trim().length < 3) return;
-      timer = window.setTimeout(runSearch, 300);
+      timer = window.setTimeout(runSearch, SEARCH_DEBOUNCE_MS);
     });
 
     results.addEventListener('click', async event => {
