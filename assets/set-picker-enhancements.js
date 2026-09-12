@@ -48,7 +48,7 @@
       });
 
       if (existing) {
-        existing.textContent = label;
+        if (String(existing.textContent || '') !== label) existing.textContent = label;
         return;
       }
 
