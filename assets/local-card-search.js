@@ -303,6 +303,19 @@
     }
   }
 
+  function clarifyExternalIndexRows() {
+    (Array.isArray(config.games) ? config.games : []).forEach(game => {
+      if (!game || !game.externalIndex) return;
+      const row = document.querySelector(`[data-nps-index-game="${CSS.escape(String(game.id || ''))}"]`);
+      if (!row) return;
+
+      const link = row.querySelector('a.button');
+      const status = row.querySelector('.nps-card-index__status');
+      if (link) link.textContent = `Åbn ${String(game.name || 'spillets')} indstillinger`;
+      if (status) status.textContent = 'Søgeindekset opdateres i spillets egne indstillinger.';
+    });
+  }
+
   function wireIndexSettings() {
     document.querySelectorAll('.nps-card-index__rebuild').forEach(button => {
       button.addEventListener('click', async () => {
@@ -335,6 +348,9 @@
 
   document.addEventListener('DOMContentLoaded', () => {
     if (String(config.mode || '') === 'bulk') wireSearch();
-    if (String(config.mode || '') === 'settings') wireIndexSettings();
+    if (String(config.mode || '') === 'settings') {
+      clarifyExternalIndexRows();
+      wireIndexSettings();
+    }
   });
 })();
