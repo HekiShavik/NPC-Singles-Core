@@ -42,6 +42,12 @@ final class AdminRouter
         return (int)($this->config['game_order'] ?? 100);
     }
 
+    public function uiPrefix(): string
+    {
+        $globalName = strtolower(trim((string)($this->config['global_name'] ?? '')));
+        return sanitize_key((string)($this->config['ui_prefix'] ?? $this->config['ajax_prefix'] ?? $globalName));
+    }
+
     public function renderBulk(): void { $this->adminPage->render(); }
     public function renderSettings(): void { $this->settingsPage->render(); }
     public function renderHistory(): void { $this->historyPage->render(); }

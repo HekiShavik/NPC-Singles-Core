@@ -1,0 +1,156 @@
+.nps-card-search {
+  max-width: none;
+  margin: 16px 0;
+  padding: 16px 18px;
+}
+
+.nps-card-search h2 {
+  margin: 0 0 4px;
+}
+
+.nps-card-search__heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.nps-card-search__heading p {
+  margin: 0;
+}
+
+.nps-card-search__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.nps-card-search__input {
+  min-width: min(520px, 100%);
+}
+
+.nps-card-search__status {
+  color: #646970;
+}
+
+.nps-card-search__results {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.nps-card-search__results > p {
+  grid-column: 1 / -1;
+}
+
+.nps-card-search__result {
+  appearance: none;
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  border: 1px solid #c3c4c7;
+  border-radius: 4px;
+  background: #fff;
+  padding: 10px;
+  color: #1d2327;
+  text-align: left;
+  cursor: pointer;
+}
+
+.nps-card-search__result:hover,
+.nps-card-search__result:focus-visible {
+  border-color: #2271b1;
+  box-shadow: 0 0 0 1px #2271b1;
+  outline: none;
+}
+
+.nps-card-search__result:disabled {
+  cursor: wait;
+  opacity: .65;
+}
+
+.nps-card-search__image {
+  flex: 0 0 82px;
+  min-height: 112px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 3px;
+  background: #f6f7f7;
+}
+
+.nps-card-search__image img {
+  display: block;
+  width: 82px;
+  height: auto;
+  max-height: 118px;
+  object-fit: contain;
+}
+
+.nps-card-search__no-image {
+  padding: 8px;
+  color: #646970;
+  font-size: 11px;
+  text-align: center;
+}
+
+.nps-card-search__body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  line-height: 1.35;
+}
+
+.nps-card-search__name {
+  font-size: 14px;
+}
+
+.nps-card-search__version {
+  font-weight: 400;
+}
+
+.nps-card-search__alias,
+.nps-card-search__meta {
+  color: #50575e;
+  font-size: 12px;
+}
+
+.nps-card-search__alias {
+  font-style: italic;
+}
+
+.nps-card-search__hints {
+  margin-top: 4px;
+  padding-top: 5px;
+  border-top: 1px solid #dcdcde;
+  color: #3c434a;
+  font-size: 12px;
+}
+
+.nps-card-search-target {
+  outline: 3px solid #2271b1 !important;
+  outline-offset: 3px;
+}
+
+.nps-card-index__status {
+  color: #646970;
+  margin-left: 4px;
+}
+
+@media (max-width: 782px) {
+  .nps-card-search__input {
+    min-width: 100%;
+    width: 100%;
+  }
+
+  .nps-card-search__results {
+    grid-template-columns: 1fr;
+  }
+}

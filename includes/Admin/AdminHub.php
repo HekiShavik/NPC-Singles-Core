@@ -92,6 +92,7 @@ final class AdminHub
         }
 
         $router->enqueueForHub($section);
+        LocalCardSearchTool::enqueue($section, $gameId, $router->uiPrefix());
     }
 
     public function render(): void
@@ -143,6 +144,7 @@ final class AdminHub
 
         if ($section === 'settings') {
             ImageRepairHealth::renderSettingsPanel();
+            LocalCardSearchTool::renderSettingsPanel();
             $router->renderSettings();
             \NPS\Core\WeightPostProcessor::render($gameId);
         } elseif ($section === 'history') {

@@ -6,7 +6,7 @@ if (!defined('ABSPATH')) exit;
 
 final class LocalCardIndex
 {
-    public const DB_VERSION = '1';
+    public const DB_VERSION = '2';
     public const DB_OPTION = 'nps_card_index_db_version';
 
     public static function tableName(): string
@@ -17,9 +17,8 @@ final class LocalCardIndex
 
     public static function install(): void
     {
-        if ((string)get_option(self::DB_OPTION, '') === self::DB_VERSION) {
-            return;
-        }
+        $installedVersion = (string)get_option(self::DB_OPTION, '');
+        if ($installedVersion === self::DB_VERSION) return;
 
         global $wpdb;
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
@@ -45,51 +44,90 @@ final class LocalCardIndex
             sync_token varchar(40) NOT NULL DEFAULT '',
             updated_at datetime NOT NULL,
             PRIMARY KEY  (id),
-            UNIQUE KEY game_card (game_id, card_id),
-            KEY game_name (game_id, card_name(191)),
-            KEY game_set (game_id, set_id),
-            KEY game_collector (game_id, collector_number),
-            KEY game_sync (game_id, sync_token)
+            UNIQUE KEY game_card_language (game_id,card_id,language),
+            KEY game_name (game_id,card_name(191)),
+            KEY game_set (game_id,set_id),
+            KEY game_language (game_id,language),
+            KEY game_collector (game_id,collector_number),
+            KEY game_sync (game_id,sync_token)
         ) {$charset};";
 
         dbDelta($sql);
+
+        // DB v1 keyed only by game+card. That prevents the same provider card ID
+        // from existing in more than one catalogue/language. dbDelta can add the
+        // new key but does not reliably remove the old UNIQUE index, so remove it
+        // explicitly during the v1 -> v2 migration.
+        if ($installedVersion !== '' && version_compare($installedVersion, '2', '<')) {
+            $oldIndex = $wpdb->get_var("SHOW INDEX FROM {$table} WHERE Key_name = 'game_card'");
+            if ($oldIndex !== null) {
+                $wpdb->query("ALTER TABLE {$table} DROP INDEX game_card");
+            }
+        }
+
         update_option(self::DB_OPTION, self::DB_VERSION, false);
     }
 
-    public function count(string $gameId): int
+    public function count(string $gameId, string $language = ''): int
     {
         global $wpdb;
         $table = self::tableName();
+        $gameId = sanitize_key($gameId);
+        $language = $this->language($language);
+        if ($language !== '') {
+            return (int)$wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(*) FROM {$table} WHERE game_id = %s AND language = %s",
+                $gameId,
+                $language
+            ));
+        }
         return (int)$wpdb->get_var($wpdb->prepare(
             "SELECT COUNT(*) FROM {$table} WHERE game_id = %s",
-            sanitize_key($gameId)
+            $gameId
         ));
     }
 
-    public function clear(string $gameId): int
+    public function clear(string $gameId, string $language = ''): int
     {
         global $wpdb;
         $table = self::tableName();
+        $gameId = sanitize_key($gameId);
+        $language = $this->language($language);
+        if ($language !== '') {
+            return (int)$wpdb->query($wpdb->prepare(
+                "DELETE FROM {$table} WHERE game_id = %s AND language = %s",
+                $gameId,
+                $language
+            ));
+        }
         return (int)$wpdb->query($wpdb->prepare(
             "DELETE FROM {$table} WHERE game_id = %s",
-            sanitize_key($gameId)
+            $gameId
         ));
     }
 
-    public function pruneOtherSyncs(string $gameId, string $syncToken): int
+    public function pruneOtherSyncs(string $gameId, string $syncToken, string $language = ''): int
     {
         global $wpdb;
         $table = self::tableName();
+        $gameId = sanitize_key($gameId);
+        $language = $this->language($language);
+        if ($language !== '') {
+            return (int)$wpdb->query($wpdb->prepare(
+                "DELETE FROM {$table} WHERE game_id = %s AND language = %s AND sync_token <> %s",
+                $gameId,
+                $language,
+                $syncToken
+            ));
+        }
         return (int)$wpdb->query($wpdb->prepare(
             "DELETE FROM {$table} WHERE game_id = %s AND sync_token <> %s",
-            sanitize_key($gameId),
+            $gameId,
             $syncToken
         ));
     }
 
-    /**
-     * @param array<int,array<string,mixed>> $rows
-     */
+    /** @param array<int,array<string,mixed>> $rows */
     public function upsertBatch(string $gameId, array $rows, string $syncToken): int
     {
         if (!$rows) return 0;
@@ -123,9 +161,7 @@ final class LocalCardIndex
             }
 
             $releaseDate = trim((string)($row['release_date'] ?? ''));
-            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $releaseDate)) {
-                $releaseDate = '';
-            }
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $releaseDate)) $releaseDate = '';
 
             $placeholders[] = '(' . implode(',', array_fill(0, count($columns), '%s')) . ')';
             array_push(
@@ -136,7 +172,7 @@ final class LocalCardIndex
                 trim((string)($row['set_id'] ?? '')),
                 trim((string)($row['set_name'] ?? '')),
                 trim((string)($row['collector_number'] ?? '')),
-                strtoupper(trim((string)($row['language'] ?? ''))),
+                $this->language((string)($row['language'] ?? '')),
                 trim((string)($row['rarity'] ?? '')),
                 trim((string)($row['image_url'] ?? '')),
                 trim((string)($row['image_back_url'] ?? '')),
@@ -152,20 +188,12 @@ final class LocalCardIndex
         if (!$placeholders) return 0;
 
         $updates = [
-            'card_name=VALUES(card_name)',
-            'set_id=VALUES(set_id)',
-            'set_name=VALUES(set_name)',
-            'collector_number=VALUES(collector_number)',
-            'language=VALUES(language)',
-            'rarity=VALUES(rarity)',
-            'image_url=VALUES(image_url)',
-            'image_back_url=VALUES(image_back_url)',
-            'finishes=VALUES(finishes)',
-            'release_date=VALUES(release_date)',
-            'search_text=VALUES(search_text)',
-            'payload=VALUES(payload)',
-            'sync_token=VALUES(sync_token)',
-            'updated_at=VALUES(updated_at)',
+            'card_name=VALUES(card_name)', 'set_id=VALUES(set_id)', 'set_name=VALUES(set_name)',
+            'collector_number=VALUES(collector_number)', 'rarity=VALUES(rarity)',
+            'image_url=VALUES(image_url)', 'image_back_url=VALUES(image_back_url)',
+            'finishes=VALUES(finishes)', 'release_date=VALUES(release_date)',
+            'search_text=VALUES(search_text)', 'payload=VALUES(payload)',
+            'sync_token=VALUES(sync_token)', 'updated_at=VALUES(updated_at)',
         ];
 
         $sql = 'INSERT INTO ' . $table . ' (' . implode(',', $columns) . ') VALUES '
@@ -178,12 +206,13 @@ final class LocalCardIndex
     }
 
     /** @return array<int,array<string,mixed>> */
-    public function search(string $gameId, string $term, int $limit = 60): array
+    public function search(string $gameId, string $term, int $limit = 60, string $language = ''): array
     {
         global $wpdb;
         $table = self::tableName();
         $gameId = sanitize_key($gameId);
         $term = trim($term);
+        $language = $this->language($language);
         $termLength = function_exists('mb_strlen') ? mb_strlen($term) : strlen($term);
         if ($gameId === '' || $termLength < 2) return [];
 
@@ -191,12 +220,16 @@ final class LocalCardIndex
         $like = '%' . $wpdb->esc_like($term) . '%';
         $prefix = $wpdb->esc_like($term) . '%';
         $exact = $term;
+        $languageSql = $language !== '' ? ' AND language = %s' : '';
+        $args = [$gameId];
+        if ($language !== '') $args[] = $language;
+        array_push($args, $like, $like, $like, $like, $exact, $prefix, $limit);
 
         $sql = $wpdb->prepare(
             "SELECT card_id, card_name, set_id, set_name, collector_number, language, rarity,
                     image_url, image_back_url, finishes, release_date, payload
              FROM {$table}
-             WHERE game_id = %s
+             WHERE game_id = %s{$languageSql}
                AND (card_name LIKE %s OR set_name LIKE %s OR collector_number LIKE %s OR search_text LIKE %s)
              ORDER BY
                CASE
@@ -209,31 +242,36 @@ final class LocalCardIndex
                set_name ASC,
                collector_number ASC
              LIMIT %d",
-            $gameId, $like, $like, $like, $like, $exact, $prefix, $limit
+            ...$args
         );
 
         $rows = $wpdb->get_results($sql, ARRAY_A);
         if (!is_array($rows)) return [];
-
-        foreach ($rows as &$row) {
-            $finishes = json_decode((string)($row['finishes'] ?? ''), true);
-            $payload = json_decode((string)($row['payload'] ?? ''), true);
-            $row['finishes'] = is_array($finishes) ? $finishes : [];
-            $row['payload'] = is_array($payload) ? $payload : [];
-        }
+        foreach ($rows as &$row) $row = $this->decodeRow($row);
         unset($row);
         return $rows;
     }
+
     /** @return array<string,mixed>|null */
-    public function get(string $gameId, string $cardId): ?array
+    public function get(string $gameId, string $cardId, string $language = ''): ?array
     {
         global $wpdb;
-        $row = $wpdb->get_row($wpdb->prepare(
-            "SELECT card_id, card_name, set_id, set_name, collector_number, language, rarity,
-                    image_url, image_back_url, finishes, release_date, payload
-             FROM " . self::tableName() . " WHERE game_id = %s AND card_id = %s LIMIT 1",
-            sanitize_key($gameId), sanitize_text_field($cardId)
-        ), ARRAY_A);
+        $language = $this->language($language);
+        if ($language !== '') {
+            $row = $wpdb->get_row($wpdb->prepare(
+                "SELECT card_id, card_name, set_id, set_name, collector_number, language, rarity,
+                        image_url, image_back_url, finishes, release_date, payload
+                 FROM " . self::tableName() . " WHERE game_id = %s AND card_id = %s AND language = %s LIMIT 1",
+                sanitize_key($gameId), sanitize_text_field($cardId), $language
+            ), ARRAY_A);
+        } else {
+            $row = $wpdb->get_row($wpdb->prepare(
+                "SELECT card_id, card_name, set_id, set_name, collector_number, language, rarity,
+                        image_url, image_back_url, finishes, release_date, payload
+                 FROM " . self::tableName() . " WHERE game_id = %s AND card_id = %s LIMIT 1",
+                sanitize_key($gameId), sanitize_text_field($cardId)
+            ), ARRAY_A);
+        }
         return is_array($row) ? $this->hydrateRow(sanitize_key($gameId), $row) : null;
     }
 
@@ -251,8 +289,9 @@ final class LocalCardIndex
         $limit = max(1, min(100, $limit));
 
         $cardId = trim((string)($criteria['card_id'] ?? ''));
+        $language = $this->language((string)($criteria['language'] ?? ''));
         if ($cardId !== '') {
-            $row = $this->get($gameId, $cardId);
+            $row = $this->get($gameId, $cardId, $language);
             return $row ? [$row] : [];
         }
 
@@ -260,7 +299,6 @@ final class LocalCardIndex
         $setId = trim((string)($criteria['set_id'] ?? ''));
         $setName = trim((string)($criteria['set_name'] ?? $criteria['set'] ?? ''));
         $number = trim((string)($criteria['card_number'] ?? $criteria['collector_number'] ?? $criteria['number'] ?? ''));
-        $language = strtoupper(trim((string)($criteria['language'] ?? '')));
 
         $where = ['game_id = %s'];
         $args = [$gameId];
@@ -270,16 +308,13 @@ final class LocalCardIndex
             $where[] = '(collector_number = %s OR collector_number LIKE %s)';
             $args[] = $number; $args[] = $numerator . '/%';
         }
-        // Collector number is the strongest cross-provider discriminator. When it is
-        // available, keep name/set as scoring signals rather than hard SQL filters;
-        // older index snapshots may not contain every descriptive field.
         if ($number === '') {
             if ($setName !== '') { $where[] = 'set_name LIKE %s'; $args[] = '%' . $wpdb->esc_like($setName) . '%'; }
             if ($name !== '') { $where[] = 'card_name LIKE %s'; $args[] = '%' . $wpdb->esc_like($name) . '%'; }
         }
-        if ($language !== '') { $where[] = '(language = %s OR language = \'\')'; $args[] = $language; }
-
+        if ($language !== '') { $where[] = 'language = %s'; $args[] = $language; }
         if (count($where) === 1) return [];
+
         $sql = "SELECT card_id, card_name, set_id, set_name, collector_number, language, rarity,
                        image_url, image_back_url, finishes, release_date, payload
                 FROM " . self::tableName() . " WHERE " . implode(' AND ', $where) . " LIMIT %d";
@@ -300,17 +335,30 @@ final class LocalCardIndex
         return array_slice($out, 0, $limit);
     }
 
-    public function deleteSet(string $gameId, string $setId): int
+    public function deleteSet(string $gameId, string $setId, string $language = ''): int
     {
         global $wpdb;
-        return (int)$wpdb->delete(self::tableName(), ['game_id'=>sanitize_key($gameId), 'set_id'=>sanitize_text_field($setId)], ['%s','%s']);
+        $where = ['game_id'=>sanitize_key($gameId), 'set_id'=>sanitize_text_field($setId)];
+        $format = ['%s','%s'];
+        $language = $this->language($language);
+        if ($language !== '') { $where['language'] = $language; $format[] = '%s'; }
+        return (int)$wpdb->delete(self::tableName(), $where, $format);
+    }
+
+    /** @return array<string,mixed> */
+    private function decodeRow(array $row): array
+    {
+        $finishes = json_decode((string)($row['finishes'] ?? ''), true);
+        $payload = json_decode((string)($row['payload'] ?? ''), true);
+        $row['finishes'] = is_array($finishes) ? $finishes : [];
+        $row['payload'] = is_array($payload) ? $payload : [];
+        return $row;
     }
 
     /** @return array<string,mixed> */
     private function hydrateRow(string $gameId, array $row): array
     {
-        $finishes = json_decode((string)($row['finishes'] ?? ''), true);
-        $payload = json_decode((string)($row['payload'] ?? ''), true);
+        $row = $this->decodeRow($row);
         return [
             'game_id'=>$gameId,
             'card_id'=>(string)($row['card_id'] ?? ''),
@@ -322,10 +370,15 @@ final class LocalCardIndex
             'rarity'=>(string)($row['rarity'] ?? ''),
             'image_url'=>(string)($row['image_url'] ?? ''),
             'image_back_url'=>(string)($row['image_back_url'] ?? ''),
-            'finishes'=>is_array($finishes) ? $finishes : [],
+            'finishes'=>$row['finishes'],
             'release_date'=>(string)($row['release_date'] ?? ''),
-            'payload'=>is_array($payload) ? $payload : [],
+            'payload'=>$row['payload'],
         ];
+    }
+
+    private function language(string $value): string
+    {
+        return strtoupper(trim($value));
     }
 
     private function norm(string $value): string
@@ -337,5 +390,4 @@ final class LocalCardIndex
     {
         return $this->norm(explode('/', trim($value), 2)[0]);
     }
-
 }
