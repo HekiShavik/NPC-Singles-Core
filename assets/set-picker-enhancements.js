@@ -23,16 +23,31 @@
     if (!baseClass || img.getAttribute('data-nps-image-failed') === '1') return;
 
     img.setAttribute('data-nps-image-failed', '1');
-    img.hidden = true;
 
     const parent = img.parentElement;
-    if (parent && !parent.querySelector('[data-nps-broken-thumb-placeholder="1"]')) {
-      const placeholder = document.createElement('span');
-      placeholder.setAttribute('data-nps-broken-thumb-placeholder', '1');
-      placeholder.classList.add(baseClass, `${baseClass}--empty`);
-      placeholder.setAttribute('aria-hidden', 'true');
-      parent.appendChild(placeholder);
+    if (!parent) {
+      img.remove();
+      queueRefresh();
+      return;
     }
+
+    const existing = parent.querySelector('[data-nps-broken-thumb-placeholder="1"]');
+    if (existing) {
+      img.remove();
+      queueRefresh();
+      return;
+    }
+
+    const placeholder = document.createElement('span');
+    placeholder.setAttribute('data-nps-broken-thumb-placeholder', '1');
+    placeholder.classList.add(baseClass, `${baseClass}--empty`);
+    placeholder.setAttribute('aria-hidden', 'true');
+
+    // Replace the failed resource node entirely. Merely setting `hidden` is not
+    // robust here because game-specific thumbnail CSS can make the broken image
+    // visible again, producing both the browser's broken-image glyph and our
+    // empty placeholder side by side.
+    img.replaceWith(placeholder);
 
     queueRefresh();
   }
