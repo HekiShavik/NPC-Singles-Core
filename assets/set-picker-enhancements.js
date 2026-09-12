@@ -12,6 +12,21 @@
     return Array.from(root.querySelectorAll('[class]')).find(el => hasClassEnding(el, suffix)) || null;
   }
 
+  function syncEmptyPickerFilter(picker) {
+    if (!picker || picker.hidden) return;
+    if (!hasClassEnding(picker, '-seriespicker') && !hasClassEnding(picker, '-seriespicker--overlay')) return;
+
+    const filter = picker.querySelector('input[id$="_series_filter"]');
+    if (!filter || String(filter.value || '').trim() !== '') return;
+
+    // Game admin bundles normally clear the visible search field when the set
+    // picker opens. Some of them keep the previously rendered filtered list as
+    // an optimisation, which leaves an empty field showing stale search results.
+    // Re-fire the normal input handler so visible state and filter state always
+    // agree. Existing secondary filters such as "only created" remain in force.
+    filter.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
   function refresh() {
     queued = false;
 
@@ -81,6 +96,19 @@
     queueRefresh();
   }
 
-  const observer = new MutationObserver(queueRefresh);
-  observer.observe(document.documentElement, { childList: true, subtree: true });
+  const observer = new MutationObserver(records => {
+    records.forEach(record => {
+      if (record.type === 'attributes' && record.attributeName === 'hidden' && !record.target.hidden) {
+        // Let the game bundle finish clearing/focusing its search field first.
+        window.setTimeout(() => syncEmptyPickerFilter(record.target), 0);
+      }
+    });
+    queueRefresh();
+  });
+  observer.observe(document.documentElement, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['hidden'],
+  });
 })();
