@@ -19,31 +19,25 @@
     Object.entries(data || {}).forEach(([key, value]) => fd.append(key, value));
 
     const response = await fetch(String(config.ajaxUrl || ''), {
-      method: 'POST',
-      credentials: 'same-origin',
-      body: fd,
+      method: 'POST', credentials: 'same-origin', body: fd,
     });
-
     const text = await response.text();
     let json = null;
-    try {
-      json = text ? JSON.parse(text) : null;
-    } catch (_) {
-      json = null;
-    }
-
-    if (!json) {
-      throw new Error(response.ok ? 'Ugyldigt svar fra serveren.' : `Serverfejl (HTTP ${response.status}).`);
-    }
-    if (json.success === false) {
-      throw new Error(json.data && json.data.message ? json.data.message : 'Handlingen fejlede.');
-    }
-
+    try { json = text ? JSON.parse(text) : null; } catch (_) { json = null; }
+    if (!json) throw new Error(response.ok ? 'Ugyldigt svar fra serveren.' : `Serverfejl (HTTP ${response.status}).`);
+    if (json.success === false) throw new Error(json.data && json.data.message ? json.data.message : 'Handlingen fejlede.');
     return json.data || {};
   }
 
   function gameConfig(gameId) {
     return (Array.isArray(config.games) ? config.games : []).find(game => String(game.id || '') === String(gameId || '')) || null;
+  }
+
+  function activeLanguage() {
+    const prefix = String(config.uiPrefix || '').trim();
+    if (!prefix) return '';
+    const input = document.getElementById(`${prefix}_lang`);
+    return input ? String(input.value || '').trim().toUpperCase() : '';
   }
 
   function finishText(item) {
@@ -82,7 +76,6 @@
   function renderResults(root, items, indexed) {
     const results = root.querySelector('.nps-card-search__results');
     if (!results) return;
-
     if (!Array.isArray(items) || items.length === 0) {
       results.innerHTML = Number(indexed || 0) > 0
         ? '<p class="description">Ingen match i det lokale indeks.</p>'
@@ -106,9 +99,7 @@
       const details = [String(item.rarity || '').trim(), finishes, language].filter(Boolean).join(' · ');
 
       return `
-        <button type="button" class="nps-card-search__result"
-                data-set-id="${esc(item.set_id || '')}"
-                data-card-id="${esc(item.card_id || '')}">
+        <button type="button" class="nps-card-search__result" data-set-id="${esc(item.set_id || '')}" data-card-id="${esc(item.card_id || '')}">
           <span class="nps-card-search__image">
             ${item.image_url ? `<img src="${esc(item.image_url)}" alt="" loading="lazy" decoding="async">` : '<span class="nps-card-search__no-image">Intet billede</span>'}
           </span>
@@ -126,9 +117,7 @@
     }).join('');
   }
 
-  function sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-  }
+  function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 
   async function waitFor(getter, timeoutMs, intervalMs) {
     const started = Date.now();
@@ -143,7 +132,6 @@
   async function openSearchResult(setId, cardId, status) {
     const prefix = String(config.uiPrefix || '').trim();
     if (!prefix) throw new Error('Spillets UI-prefix mangler.');
-
     const setInput = document.getElementById(`${prefix}_set`);
     const setIdInput = document.getElementById(`${prefix}_set_id`);
     if (!setInput || !setIdInput) throw new Error('Setvælgeren blev ikke fundet.');
@@ -151,18 +139,10 @@
     if (String(setIdInput.value || '').toLowerCase() !== String(setId || '').toLowerCase()) {
       if (status) status.textContent = 'Åbner sæt…';
       setInput.click();
-
       const picker = document.getElementById(`${prefix}_series_picker`);
       const selector = `[data-set-id="${CSS.escape(String(setId || ''))}"]`;
-      const setButton = await waitFor(() => {
-        if (picker) return picker.querySelector(selector);
-        return document.querySelector(selector);
-      }, 10000, 100);
-
-      if (!setButton) {
-        throw new Error('Sættet findes ikke i setvælgeren. Opdatér set-listen under Indstillinger.');
-      }
-
+      const setButton = await waitFor(() => picker ? picker.querySelector(selector) : document.querySelector(selector), 10000, 100);
+      if (!setButton) throw new Error('Sættet findes ikke i setvælgeren. Opdatér set-listen under Indstillinger.');
       setButton.click();
     }
 
@@ -170,7 +150,6 @@
     const cardSelector = `[data-cardblock="${CSS.escape(String(cardId || ''))}"]`;
     const card = await waitFor(() => document.querySelector(cardSelector), 25000, 120);
     if (!card) throw new Error('Kortet blev ikke fundet i det valgte sæt. Opdatér set-kort-data under Indstillinger.');
-
     card.classList.add('nps-card-search-target');
     card.scrollIntoView({ behavior: 'smooth', block: 'center' });
     window.setTimeout(() => card.classList.remove('nps-card-search-target'), 3500);
@@ -180,11 +159,7 @@
     const gameId = String(config.gameId || '');
     const prefix = String(config.uiPrefix || '');
     if (!gameId || !prefix) return null;
-
-    // Magic had the first game-specific version of this feature. Until the
-    // Magic follow-up release removes that old panel, avoid rendering two.
     if (document.getElementById(`${prefix}_global_card_search`)) return null;
-
     const gameWrap = document.querySelector(`.${CSS.escape(prefix)}-wrap`);
     if (!gameWrap) return null;
     const heading = gameWrap.querySelector('h1');
@@ -193,19 +168,13 @@
     const panel = document.createElement('div');
     panel.className = 'nps-card-search card';
     panel.innerHTML = `
-      <div class="nps-card-search__heading">
-        <div>
-          <h2>Find kort</h2>
-          <p class="description">Søg på tværs af alle lokalt indekserede printings i dette spil.</p>
-        </div>
-      </div>
+      <div class="nps-card-search__heading"><div><h2>Find kort</h2><p class="description">Søg på tværs af alle lokalt indekserede printings i dette spil.</p></div></div>
       <div class="nps-card-search__row">
         <input type="search" class="regular-text nps-card-search__input" placeholder="Søg efter kortnavn, sæt eller nummer…" autocomplete="off">
         <button type="button" class="button button-primary nps-card-search__button">Find</button>
         <span class="nps-card-search__status" aria-live="polite"></span>
       </div>
       <div class="nps-card-search__results"></div>`;
-
     heading.insertAdjacentElement('afterend', panel);
     return panel;
   }
@@ -213,16 +182,17 @@
   function wireSearch() {
     const root = createSearchPanel();
     if (!root) return;
-
     const input = root.querySelector('.nps-card-search__input');
     const button = root.querySelector('.nps-card-search__button');
     const status = root.querySelector('.nps-card-search__status');
     const results = root.querySelector('.nps-card-search__results');
+    const languageInput = document.getElementById(`${String(config.uiPrefix || '').trim()}_lang`);
     let timer = null;
     let searchSequence = 0;
 
     async function runSearch() {
       const term = String(input.value || '').trim();
+      const language = activeLanguage();
       const sequence = ++searchSequence;
       if (term.length < 2) {
         results.innerHTML = '';
@@ -234,14 +204,13 @@
       button.disabled = true;
       status.textContent = 'Søger lokalt…';
       try {
-        const data = await post('nps_local_card_search', { gameId: config.gameId, term });
-        if (sequence !== searchSequence || String(input.value || '').trim() !== term) return;
-
+        const data = await post('nps_local_card_search', { gameId: config.gameId, term, language });
+        if (sequence !== searchSequence || String(input.value || '').trim() !== term || activeLanguage() !== language) return;
         const items = Array.isArray(data.items) ? data.items : [];
         renderResults(root, items, Number(data.indexed || 0));
         status.textContent = `${items.length} match vist · ${Number(data.indexed || 0).toLocaleString('da-DK')} printings indekseret.`;
       } catch (error) {
-        if (sequence !== searchSequence || String(input.value || '').trim() !== term) return;
+        if (sequence !== searchSequence || String(input.value || '').trim() !== term || activeLanguage() !== language) return;
         results.innerHTML = '';
         status.textContent = error.message || 'Søgning fejlede.';
       } finally {
@@ -249,10 +218,7 @@
       }
     }
 
-    button.addEventListener('click', () => {
-      window.clearTimeout(timer);
-      runSearch();
-    });
+    button.addEventListener('click', () => { window.clearTimeout(timer); runSearch(); });
     input.addEventListener('keydown', event => {
       if (event.key !== 'Enter') return;
       event.preventDefault();
@@ -261,10 +227,19 @@
     });
     input.addEventListener('input', () => {
       window.clearTimeout(timer);
-      searchSequence += 1; // Invalidate any slower response for the previous text.
+      searchSequence += 1;
       if (String(input.value || '').trim().length < 3) return;
       timer = window.setTimeout(runSearch, SEARCH_DEBOUNCE_MS);
     });
+    if (languageInput) {
+      languageInput.addEventListener('change', () => {
+        window.clearTimeout(timer);
+        searchSequence += 1;
+        results.innerHTML = '';
+        status.textContent = '';
+        if (String(input.value || '').trim().length >= 2) timer = window.setTimeout(runSearch, 0);
+      });
+    }
 
     results.addEventListener('click', async event => {
       const result = event.target.closest('.nps-card-search__result');
@@ -272,7 +247,6 @@
       const setId = String(result.getAttribute('data-set-id') || '');
       const cardId = String(result.getAttribute('data-card-id') || '');
       if (!setId || !cardId) return;
-
       result.disabled = true;
       status.textContent = 'Åbner print…';
       try {
@@ -291,9 +265,7 @@
     if (!row) return;
     const count = row.querySelector('.nps-card-index__count');
     const status = row.querySelector('.nps-card-index__status');
-    if (count && progress && progress.indexed !== undefined) {
-      count.textContent = `${Number(progress.indexed || 0).toLocaleString('da-DK')} printings`;
-    }
+    if (count && progress && progress.indexed !== undefined) count.textContent = `${Number(progress.indexed || 0).toLocaleString('da-DK')} printings`;
     if (status && progress) {
       const processed = Number(progress.processed || 0);
       const total = Number(progress.totalSets || 0);
@@ -308,7 +280,6 @@
       if (!game || !game.externalIndex) return;
       const row = document.querySelector(`[data-nps-index-game="${CSS.escape(String(game.id || ''))}"]`);
       if (!row) return;
-
       const link = row.querySelector('a.button');
       const status = row.querySelector('.nps-card-index__status');
       if (link) link.textContent = `Åbn ${String(game.name || 'spillets')} indstillinger`;
@@ -324,7 +295,6 @@
         if (!gameId) return;
         const row = button.closest('[data-nps-index-game]');
         const status = row ? row.querySelector('.nps-card-index__status') : null;
-
         button.disabled = true;
         if (status) status.textContent = 'Forbereder indeks…';
         try {
@@ -332,7 +302,6 @@
           updateIndexRow(gameId, progress);
           const token = String(progress.token || '');
           if (!token) throw new Error('Indekskørslen returnerede ikke et token.');
-
           while (!progress.done) {
             progress = await post('nps_local_card_index_step', { gameId, token });
             updateIndexRow(gameId, progress);
