@@ -38,6 +38,7 @@ add_action('plugins_loaded', function () {
     \NPS\Core\Admin\ImageRepairTool::boot();
     \NPS\Core\Admin\ImageRepairHealth::boot();
     \NPS\Core\Admin\LocalCardSearchTool::boot();
+    \NPS\Core\Admin\SetPickerEnhancements::boot();
 
     /**
      * Fires when NP Singles Core is ready and integrations may register.
