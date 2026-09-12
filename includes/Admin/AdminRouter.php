@@ -64,6 +64,7 @@ final class AdminRouter
                 'nonce' => wp_create_nonce($nonceAction),
                 'historyUrl' => AdminHub::historyUrl($this->gameId()),
             ]);
+            $this->enqueueStockAutocreate($nonceAction, $globalName);
             return;
         }
 
@@ -104,6 +105,31 @@ final class AdminRouter
             wp_safe_redirect(AdminHub::settingsUrl($this->gameId()));
             exit;
         }
+    }
+
+    private function enqueueStockAutocreate(string $nonceAction, string $globalName): void
+    {
+        $path = NPS_CORE_DIR . 'assets/stock-autocreate.js';
+        if (!is_file($path)) return;
+
+        $prefix = sanitize_key((string)($this->config['ajax_prefix'] ?? strtolower($globalName)));
+        if ($prefix === '') return;
+
+        wp_enqueue_script(
+            'nps-stock-autocreate',
+            NPS_CORE_URL . 'assets/stock-autocreate.js',
+            [$this->assets->handle()],
+            filemtime($path),
+            true
+        );
+        wp_localize_script('nps-stock-autocreate', 'NPS_STOCK_AUTOCREATE', [
+            'ajaxUrl' => admin_url('admin-ajax.php'),
+            'nonce' => wp_create_nonce($nonceAction),
+            'createAction' => $prefix . '_create',
+            'setStockAction' => $prefix . '_set_stock_absolute',
+            'deleteAction' => $prefix . '_delete_product',
+            'setIdSelector' => '#' . $prefix . '_set_id',
+        ]);
     }
 
     private function enqueueSettingsScript(string $nonceAction): void
