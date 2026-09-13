@@ -1,6 +1,7 @@
 <?php
 namespace NPS\Core\Admin;
 
+use NPS\Core\DataProviderInspector;
 use NPS\Core\DataProviderQuota;
 use NPS\Core\DataProviderRegistry;
 use NPS\Core\DataProviderSettings;
@@ -21,7 +22,11 @@ final class DataProvidersPage
         $providers = DataProviderRegistry::instance()->all();
         echo '<div class="wrap" style="margin-top:18px;">';
         echo '<h2>Datakilder</h2>';
-        echo '<p>Fælles oversigt over Singles-datakilder, API-nøgler og lokale requestbudgetter. Et budget på 0 betyder ingen lokal grænse.</p>';
+        echo '<p>Fælles oversigt over Singles-datakilder, API-nøgler, requestbudgetter og synkroniseringsstatus. Et budget på 0 betyder ingen lokal grænse.</p>';
+
+        if (!empty($_GET['updated'])) {
+            echo '<div class="notice notice-success inline"><p>Datakilden er gemt.</p></div>';
+        }
 
         if (!$providers) {
             echo '<div class="notice notice-info inline"><p>Ingen datakilder er registreret endnu. Spil- og prisplugins kan registrere deres providers gennem Singles Core.</p></div>';
@@ -30,11 +35,18 @@ final class DataProvidersPage
         }
 
         $quota = new DataProviderQuota();
+        $inspector = new DataProviderInspector();
         foreach ($providers as $provider) {
             $id = (string)$provider['id'];
             $settings = DataProviderSettings::get($id);
             $usage = $quota->summary($id);
-            self::renderProvider($provider, $settings, $usage);
+            $diagnostics = [
+                'latest_request' => $inspector->latestRequest($id),
+                'jobs' => $inspector->jobs($id),
+                'resources' => $inspector->resourceCounts($id),
+                'raw_count' => $inspector->rawCount($id),
+            ];
+            self::renderProvider($provider, $settings, $usage, $diagnostics);
         }
         echo '</div>';
     }
@@ -58,7 +70,7 @@ final class DataProvidersPage
             $key = sanitize_key((string)($field['key'] ?? ''));
             if ($key === '') continue;
             if (isset($_POST['credentials'][$key])) {
-                $credentials[$key] = sanitize_text_field(wp_unslash((string)$_POST['credentials'][$key]));
+                $credentials[$key] = trim(wp_unslash((string)$_POST['credentials'][$key]));
             }
             if (!empty($_POST['clear_credentials'][$key])) $clear[] = $key;
         }
@@ -83,12 +95,13 @@ final class DataProvidersPage
      * @param array<string,mixed> $provider
      * @param array<string,mixed> $settings
      * @param array<string,mixed> $usage
+     * @param array<string,mixed> $diagnostics
      */
-    private static function renderProvider(array $provider, array $settings, array $usage): void
+    private static function renderProvider(array $provider, array $settings, array $usage, array $diagnostics): void
     {
         $id = (string)$provider['id'];
         $uses = array_map('strval', (array)($provider['uses'] ?? []));
-        echo '<div class="postbox" style="max-width:900px;margin-top:18px;">';
+        echo '<div class="postbox" style="max-width:980px;margin-top:18px;">';
         echo '<div class="postbox-header"><h2 class="hndle">' . esc_html((string)$provider['label']) . '</h2></div>';
         echo '<div class="inside">';
         if ((string)($provider['description'] ?? '') !== '') {
@@ -97,6 +110,8 @@ final class DataProvidersPage
         if ($uses) {
             echo '<p><strong>Bruges til:</strong> ' . esc_html(implode(', ', $uses)) . '</p>';
         }
+
+        self::renderDiagnostics($diagnostics);
 
         echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
         wp_nonce_field('nps_save_data_provider');
@@ -139,6 +154,51 @@ final class DataProvidersPage
         submit_button('Gem datakilde', 'secondary', 'submit', false);
         echo '</form>';
         echo '</div></div>';
+    }
+
+    /** @param array<string,mixed> $diagnostics */
+    private static function renderDiagnostics(array $diagnostics): void
+    {
+        $resources = is_array($diagnostics['resources'] ?? null) ? $diagnostics['resources'] : [];
+        $rawCount = (int)($diagnostics['raw_count'] ?? 0);
+        echo '<p><strong>Gemte råsvar:</strong> ' . esc_html((string)$rawCount);
+        echo ' · <strong>Resources:</strong> ';
+        echo esc_html(sprintf(
+            '%d komplette · %d delvise · %d manglende',
+            (int)($resources['complete'] ?? 0),
+            (int)($resources['incomplete'] ?? 0),
+            (int)($resources['missing'] ?? 0)
+        ));
+        echo '</p>';
+
+        $request = is_array($diagnostics['latest_request'] ?? null) ? $diagnostics['latest_request'] : null;
+        if ($request !== null) {
+            $parts = [(string)($request['requested_at'] ?? '')];
+            if ((int)($request['status_code'] ?? 0) > 0) $parts[] = 'HTTP ' . (int)$request['status_code'];
+            if ((string)($request['outcome'] ?? '') !== '') $parts[] = (string)$request['outcome'];
+            if ((string)($request['endpoint'] ?? '') !== '') $parts[] = (string)$request['endpoint'];
+            echo '<p><strong>Seneste request:</strong> ' . esc_html(implode(' · ', array_filter($parts))) . '</p>';
+        }
+
+        $jobs = is_array($diagnostics['jobs'] ?? null) ? $diagnostics['jobs'] : [];
+        if (!$jobs) return;
+
+        echo '<details style="margin:10px 0 14px;"><summary><strong>Seneste synkroniseringer</strong></summary>';
+        echo '<table class="widefat striped" style="margin-top:8px;"><thead><tr><th>Job</th><th>Status</th><th>Fremdrift</th><th>Opdateret</th></tr></thead><tbody>';
+        foreach ($jobs as $job) {
+            if (!is_array($job)) continue;
+            $current = (int)($job['progress_current'] ?? 0);
+            $total = (int)($job['progress_total'] ?? 0);
+            $progress = $total > 0 ? sprintf('%d / %d', $current, $total) : (string)$current;
+            printf(
+                '<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>',
+                esc_html((string)($job['job_key'] ?? '')),
+                esc_html((string)($job['status'] ?? '')),
+                esc_html($progress),
+                esc_html((string)($job['updated_at'] ?? ''))
+            );
+        }
+        echo '</tbody></table></details>';
     }
 
     /** @param array<string,mixed> $usage */
