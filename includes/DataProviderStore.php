@@ -128,7 +128,7 @@ final class DataProviderStore
             'cost' => max(1, $cost),
             'status_code' => max(0, $statusCode),
             'outcome' => sanitize_key($outcome),
-            'endpoint' => substr(sanitize_text_field($endpoint), 0, 191),
+            'endpoint' => substr(sanitize_text_field(self::redactUrl($endpoint)), 0, 191),
             'message' => sanitize_textarea_field($message),
         ], ['%s', '%s', '%d', '%d', '%s', '%s', '%s']);
 
@@ -162,13 +162,13 @@ final class DataProviderStore
         $ok = $wpdb->insert(self::rawTable(), [
             'provider_id' => sanitize_key($providerId),
             'resource_key' => substr(sanitize_text_field($resourceKey), 0, 191),
-            'request_url' => esc_url_raw($requestUrl),
+            'request_url' => esc_url_raw(self::redactUrl($requestUrl)),
             'fetched_at' => gmdate('Y-m-d H:i:s'),
             'status_code' => max(0, $statusCode),
             'checksum' => hash('sha256', $payload),
             'content_type' => substr(sanitize_text_field($contentType), 0, 80),
             'payload' => $payload,
-            'meta' => wp_json_encode($meta, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'meta' => wp_json_encode(self::redactMeta($meta), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
         ], ['%s', '%s', '%s', '%s', '%d', '%s', '%s', '%s', '%s']);
 
         return $ok ? (int)$wpdb->insert_id : 0;
@@ -242,13 +242,24 @@ final class DataProviderStore
         $state = sanitize_key((string)($resource['state'] ?? 'missing'));
         if (!in_array($state, ['missing', 'incomplete', 'complete'], true)) $state = 'missing';
 
+        $completedAt = null;
+        if ($state === 'complete') {
+            if (array_key_exists('completed_at', $resource)) {
+                $completedAt = self::mysqlDate($resource['completed_at']);
+            } elseif ($existing !== null && (string)($existing['state'] ?? '') === 'complete' && !empty($existing['completed_at'])) {
+                $completedAt = (string)$existing['completed_at'];
+            } else {
+                $completedAt = gmdate('Y-m-d H:i:s');
+            }
+        }
+
         $data = [
             'provider_id' => $providerId,
             'resource_key' => $resourceKey,
             'state' => $state,
-            'last_checked' => self::mysqlDate($resource['last_checked'] ?? null),
+            'last_checked' => self::mysqlDate($resource['last_checked'] ?? 'now'),
             'next_check' => $state === 'complete' ? null : self::mysqlDate($resource['next_check'] ?? null),
-            'completed_at' => $state === 'complete' ? self::mysqlDate($resource['completed_at'] ?? 'now') : null,
+            'completed_at' => $completedAt,
             'raw_id' => max(0, (int)($resource['raw_id'] ?? 0)),
             'fingerprint' => substr(sanitize_text_field((string)($resource['fingerprint'] ?? '')), 0, 128),
             'meta' => wp_json_encode($resource['meta'] ?? [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
@@ -280,10 +291,41 @@ final class DataProviderStore
     {
         if ($value === null || $value === '') return null;
         try {
-            $date = $value === 'now' ? new \DateTimeImmutable('now', new \DateTimeZone('UTC')) : new \DateTimeImmutable((string)$value);
-            return $date->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d H:i:s');
+            $timezone = new \DateTimeZone('UTC');
+            $date = $value === 'now' ? new \DateTimeImmutable('now', $timezone) : new \DateTimeImmutable((string)$value, $timezone);
+            return $date->setTimezone($timezone)->format('Y-m-d H:i:s');
         } catch (\Throwable $e) {
             return null;
         }
+    }
+
+    private static function redactUrl(string $url): string
+    {
+        if ($url === '') return '';
+        return (string)preg_replace(
+            '/([?&](?:api[_-]?key|apikey|key|token|access[_-]?token|auth|authorization)=)[^&#]*/i',
+            '$1***',
+            $url
+        );
+    }
+
+    /**
+     * @param array<string,mixed> $meta
+     * @return array<string,mixed>
+     */
+    private static function redactMeta(array $meta): array
+    {
+        $redacted = [];
+        foreach ($meta as $key => $value) {
+            $keyText = (string)$key;
+            if (preg_match('/(?:api[_-]?key|token|authorization|secret|password)/i', $keyText)) {
+                $redacted[$key] = '***';
+            } elseif (is_array($value)) {
+                $redacted[$key] = self::redactMeta($value);
+            } else {
+                $redacted[$key] = $value;
+            }
+        }
+        return $redacted;
     }
 }
