@@ -58,6 +58,15 @@ final class AdminHub
         ], admin_url('edit.php'));
     }
 
+    public static function dataSourcesUrl(): string
+    {
+        return add_query_arg([
+            'post_type' => 'product',
+            'page' => self::PAGE_SLUG,
+            'tab' => 'sources',
+        ], admin_url('edit.php'));
+    }
+
     public function register(AdminRouter $router): void
     {
         $id = sanitize_key($router->gameId());
@@ -86,6 +95,8 @@ final class AdminHub
         }
 
         [$section, $gameId] = $this->resolveRequest();
+        if ($section === 'sources') return;
+
         $router = $this->routers[$gameId] ?? null;
         if ($router === null) {
             return;
@@ -99,16 +110,8 @@ final class AdminHub
     {
         if (!current_user_can('manage_woocommerce')) return;
 
-        if (!$this->routers) {
-            echo '<div class="wrap"><h1>Singles</h1><p>Ingen Singles-integrationer er registreret.</p></div>';
-            return;
-        }
-
         [$section, $gameId] = $this->resolveRequest();
-        $router = $this->routers[$gameId] ?? reset($this->routers);
-        if (!$router instanceof AdminRouter) {
-            return;
-        }
+        $router = $this->routers[$gameId] ?? ($this->routers ? reset($this->routers) : null);
 
         echo '<div class="wrap nps-singles-hub">';
         echo '<h1>Singles</h1>';
@@ -123,24 +126,41 @@ final class AdminHub
             );
         }
 
-        $imageAlertHidden = ImageRepairHealth::hasMissingImages() ? '' : ' hidden';
+        if ($router instanceof AdminRouter) {
+            $imageAlertHidden = ImageRepairHealth::hasMissingImages() ? '' : ' hidden';
+            printf(
+                '<a class="nav-tab%s nps-settings-tab" href="%s">Indstillinger <span class="nps-settings-alert"%s title="Manglende produktbilleder" aria-label="Manglende produktbilleder" style="color:#d63638;margin-left:4px;">●</span></a>',
+                esc_attr($section === 'settings' ? ' nav-tab-active' : ''),
+                esc_url(self::settingsUrl($gameId)),
+                $imageAlertHidden
+            );
+            printf(
+                '<a class="nav-tab%s" href="%s">Historik</a>',
+                esc_attr($section === 'history' ? ' nav-tab-active' : ''),
+                esc_url(self::historyUrl($gameId))
+            );
+        }
         printf(
-            '<a class="nav-tab%s nps-settings-tab" href="%s">Indstillinger <span class="nps-settings-alert"%s title="Manglende produktbilleder" aria-label="Manglende produktbilleder" style="color:#d63638;margin-left:4px;">●</span></a>',
-            esc_attr($section === 'settings' ? ' nav-tab-active' : ''),
-            esc_url(self::settingsUrl($gameId)),
-            $imageAlertHidden
-        );
-        printf(
-            '<a class="nav-tab%s" href="%s">Historik</a>',
-            esc_attr($section === 'history' ? ' nav-tab-active' : ''),
-            esc_url(self::historyUrl($gameId))
+            '<a class="nav-tab%s" href="%s">Datakilder</a>',
+            esc_attr($section === 'sources' ? ' nav-tab-active' : ''),
+            esc_url(self::dataSourcesUrl())
         );
         echo '</nav>';
 
-        if ($section === 'settings' || $section === 'history') {
+        if (($section === 'settings' || $section === 'history') && $router instanceof AdminRouter) {
             $this->renderGameSubtabs($section, $gameId);
         }
         echo '</div>';
+
+        if ($section === 'sources') {
+            DataProvidersPage::render();
+            return;
+        }
+
+        if (!$router instanceof AdminRouter) {
+            echo '<div class="wrap"><p>Ingen Singles-integrationer er registreret.</p></div>';
+            return;
+        }
 
         if ($section === 'settings') {
             ImageRepairHealth::renderSettingsPanel();
@@ -186,6 +206,10 @@ final class AdminHub
         $remembered = $this->rememberedGameId($first);
         $tab = isset($_GET['tab']) ? sanitize_key(wp_unslash((string)$_GET['tab'])) : '';
 
+        if ($tab === 'sources') {
+            return ['sources', $remembered];
+        }
+
         if ($tab === 'settings' || $tab === 'history') {
             $gameId = isset($_GET['game']) ? sanitize_key(wp_unslash((string)$_GET['game'])) : $remembered;
             if (!isset($this->routers[$gameId])) {
@@ -198,6 +222,10 @@ final class AdminHub
         if ($tab !== '' && isset($this->routers[$tab])) {
             $this->rememberGameId($tab);
             return ['bulk', $tab];
+        }
+
+        if ($remembered === '' && !$this->routers) {
+            return ['sources', ''];
         }
 
         return ['bulk', $remembered];
