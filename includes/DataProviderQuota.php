@@ -19,9 +19,13 @@ final class DataProviderQuota
     {
         $providerId = sanitize_key($providerId);
         $cost = max(1, $cost);
-        $settings = DataProviderSettings::get($providerId);
         $summary = $this->summary($providerId);
 
+        if (!DataProviderRegistry::instance()->has($providerId)) {
+            return $summary + ['allowed' => false, 'reason' => 'unregistered'];
+        }
+
+        $settings = DataProviderSettings::get($providerId);
         if (empty($settings['active'])) {
             return $summary + ['allowed' => false, 'reason' => 'inactive'];
         }
