@@ -24,3 +24,12 @@ Game integrations remain responsible for their own API/data source, card normali
 - Tilføjer et batch-baseret efterbehandlingsværktøj under hvert spils Singles-indstillinger.
 - Værktøjet anvender spillets aktuelle standardvægt på eksisterende Singles-produkter uden at ændre lager, pris eller status.
 - Jobbet kan genoptages efter en netværksfejl ved at trykke på knappen igen, så længe standardvægten ikke er ændret.
+
+## 0.8.13
+- Fælles registry for eksterne datakilder på tværs af Singles-spil og pricing.
+- Global `Datakilder`-fane i Singles med aktive providers, credentials og lokale daglige/månedlige requestbudgetter.
+- Månedlige budgetter kan have egen nulstillingsdag; forbrug beregnes fra requesthistorik og kræver derfor ingen cron til nulstilling.
+- Immutable raw provider-responses gemmes med checksum, tidspunkt, request og metadata, så normaliserede data senere kan spores tilbage til kilden.
+- Fælles persistens til resumable syncjobs med cursor/checkpoint og statuser som fx `paused_quota`.
+- Provider resources kan markeres `missing`, `incomplete` eller `complete`; komplette resources får ingen automatisk recheck-dato.
+- Offentlige Core-funktioner til provider-registrering, credentials, quota-check, requestlog, raw storage, syncjobs og resource-state.
