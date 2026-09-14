@@ -5,11 +5,18 @@ if (!defined('ABSPATH')) exit;
 
 final class ProviderStoreSchemaRepair
 {
-    private const REPAIR_OPTION = 'nps_provider_store_schema_repair_0814';
+    private const REPAIR_OPTION = 'nps_provider_store_schema_repair_0814_v2';
 
     public static function run(): void
     {
         if ((string)get_option(self::REPAIR_OPTION, '') === 'done') return;
+
+        // Force one complete dbDelta normalization for 0.8.14. Some development
+        // builds already had all four table names present, but an older/partial
+        // table definition could still make job inserts fail. Table presence is
+        // therefore not enough; rerun the canonical schema once.
+        delete_option('nps_data_provider_db_version');
+        DataProviderStore::install();
 
         global $wpdb;
         $tables = [
@@ -19,32 +26,32 @@ final class ProviderStoreSchemaRepair
             DataProviderStore::resourcesTable(),
         ];
 
-        $missing = false;
         foreach ($tables as $table) {
             $found = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table));
-            if ((string)$found !== $table) {
-                $missing = true;
-                break;
-            }
+            if ((string)$found !== $table) return;
         }
 
-        if ($missing) {
-            // Some development builds already stored provider DB version 1 before
-            // every provider table existed. Clear only the schema marker and let
-            // the existing dbDelta installer recreate any missing tables.
-            delete_option('nps_data_provider_db_version');
-            DataProviderStore::install();
+        $requiredJobColumns = [
+            'id',
+            'provider_id',
+            'job_key',
+            'status',
+            'cursor',
+            'progress_current',
+            'progress_total',
+            'context',
+            'last_error',
+            'created_at',
+            'updated_at',
+        ];
+        $columns = $wpdb->get_col('SHOW COLUMNS FROM `' . esc_sql(DataProviderStore::jobsTable()) . '`', 0);
+        if (!is_array($columns)) return;
+
+        $available = array_map('strval', $columns);
+        foreach ($requiredJobColumns as $column) {
+            if (!in_array($column, $available, true)) return;
         }
 
-        $allPresent = true;
-        foreach ($tables as $table) {
-            $found = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table));
-            if ((string)$found !== $table) {
-                $allPresent = false;
-                break;
-            }
-        }
-
-        if ($allPresent) update_option(self::REPAIR_OPTION, 'done', false);
+        update_option(self::REPAIR_OPTION, 'done', false);
     }
 }
