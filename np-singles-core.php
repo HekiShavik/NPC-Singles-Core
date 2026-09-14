@@ -2,13 +2,13 @@
 /**
  * Plugin Name: NP Singles Core
  * Description: Fælles kerne og registry for NP Singles-integrationer til WooCommerce.
- * Version: 0.8.13
+ * Version: 0.8.14
  * Requires Plugins: woocommerce
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('NPS_CORE_VERSION', '0.8.13');
+define('NPS_CORE_VERSION', '0.8.14');
 define('NPS_CORE_DIR', plugin_dir_path(__FILE__));
 define('NPS_CORE_URL', plugin_dir_url(__FILE__));
 require_once NPS_CORE_DIR . 'includes/PublicApi.php';
@@ -25,6 +25,7 @@ spl_autoload_register(function ($class) {
 register_activation_hook(__FILE__, static function (): void {
     \NPS\Core\LocalCardIndex::install();
     \NPS\Core\SetStatus::install();
+    \NPS\Core\ProviderStoreSchemaRepair::run();
     \NPS\Core\DataProviderStore::install();
 });
 
@@ -32,6 +33,7 @@ add_action('plugins_loaded', function () {
     if (!class_exists('WooCommerce')) return;
 
     \NPS\Core\LocalCardIndex::install();
+    \NPS\Core\ProviderStoreSchemaRepair::run();
     \NPS\Core\DataProviderStore::install();
     \NPS\Core\SetStatus::boot();
     \NPS\Core\WeightPostProcessor::boot();
