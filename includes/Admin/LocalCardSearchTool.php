@@ -150,7 +150,19 @@ final class LocalCardSearchTool
         $state = self::buildState();
         $state[$gameId] = ['token'=>$token, 'cursor'=>0, 'sets'=>array_values($sets), 'accepted'=>0, 'started_at'=>time()];
         update_option(self::BUILD_OPTION, $state, false);
-        wp_send_json_success(['token'=>$token, 'processed'=>0, 'totalSets'=>count($sets), 'indexed'=>(new LocalCardIndex())->count($gameId), 'done'=>false]);
+        $firstSet = is_array($sets[0] ?? null) ? $sets[0] : [];
+        wp_send_json_success([
+            'token'=>$token,
+            'processed'=>0,
+            'totalSets'=>count($sets),
+            'indexed'=>(new LocalCardIndex())->count($gameId),
+            'done'=>false,
+            'nextSet'=>[
+                'id'=>(string)($firstSet['id'] ?? ''),
+                'name'=>(string)($firstSet['name'] ?? ''),
+                'position'=>count($sets) > 0 ? 1 : 0,
+            ],
+        ]);
     }
 
     public static function ajaxIndexStep(): void
@@ -179,24 +191,59 @@ final class LocalCardSearchTool
             self::sendProgress($gameId, $state, count($sets), false);
         }
 
+        $stepStarted = microtime(true);
+        $state['active_set'] = [
+            'id' => $setId,
+            'name' => (string)($setInfo['name'] ?? ''),
+            'position' => $cursor + 1,
+            'started_at' => time(),
+        ];
+        $allState[$gameId] = $state;
+        update_option(self::BUILD_OPTION, $allState, false);
+
         $runtime = self::createRuntime($provider);
         if (is_wp_error($runtime)) wp_send_json_error(['message'=>$runtime->get_error_message()], 500);
+
+        $cacheStarted = microtime(true);
         try {
             $payload = (array)$runtime['set_cache']->get($setId, false);
         } catch (\Throwable $e) {
             wp_send_json_error(['message'=>'Kunne ikke indlæse ' . $setId . ': ' . $e->getMessage()], 500);
         }
+        $cacheMs = (int)round((microtime(true) - $cacheStarted) * 1000);
         if (!($payload['ok'] ?? false)) {
             wp_send_json_error(['message'=>'Kunne ikke indlæse ' . ($setInfo['name'] ?? $setId) . ': ' . (string)($payload['message'] ?? 'ukendt fejl')], 502);
         }
 
         $cards = (array)($payload['data']['cards'] ?? []);
+
+        $rowsStarted = microtime(true);
         $rows = self::rowsForSet($setInfo, $cards);
+        $rowsMs = (int)round((microtime(true) - $rowsStarted) * 1000);
+
+        $dbMs = 0;
+        $written = 0;
         if ($rows) {
+            $dbStarted = microtime(true);
             $written = (new LocalCardIndex())->upsertBatch($gameId, $rows, $token);
+            $dbMs = (int)round((microtime(true) - $dbStarted) * 1000);
             if ($written <= 0) wp_send_json_error(['message'=>'Kunne ikke gemme kortene fra ' . ($setInfo['name'] ?? $setId) . ' i søgeindekset.'], 500);
             $state['accepted'] = (int)($state['accepted'] ?? 0) + count($rows);
         }
+
+        $state['last_step'] = [
+            'setId' => $setId,
+            'setName' => (string)($setInfo['name'] ?? ''),
+            'position' => $cursor + 1,
+            'cards' => count($cards),
+            'rows' => count($rows),
+            'written' => $written,
+            'cacheMs' => $cacheMs,
+            'rowsMs' => $rowsMs,
+            'dbMs' => $dbMs,
+            'totalMs' => (int)round((microtime(true) - $stepStarted) * 1000),
+        ];
+        unset($state['active_set']);
 
         $state['cursor'] = $cursor + 1;
         $allState[$gameId] = $state;
@@ -217,7 +264,24 @@ final class LocalCardSearchTool
 
     private static function sendProgress(string $gameId, array $state, int $total, bool $done): void
     {
-        wp_send_json_success(['token'=>(string)($state['token'] ?? ''), 'processed'=>(int)($state['cursor'] ?? 0), 'totalSets'=>$total, 'accepted'=>(int)($state['accepted'] ?? 0), 'indexed'=>(new LocalCardIndex())->count($gameId), 'done'=>$done]);
+        $sets = is_array($state['sets'] ?? null) ? array_values($state['sets']) : [];
+        $cursor = max(0, (int)($state['cursor'] ?? 0));
+        $next = is_array($sets[$cursor] ?? null) ? $sets[$cursor] : [];
+
+        wp_send_json_success([
+            'token'=>(string)($state['token'] ?? ''),
+            'processed'=>$cursor,
+            'totalSets'=>$total,
+            'accepted'=>(int)($state['accepted'] ?? 0),
+            'indexed'=>(new LocalCardIndex())->count($gameId),
+            'done'=>$done,
+            'lastStep'=>is_array($state['last_step'] ?? null) ? $state['last_step'] : null,
+            'nextSet'=>[
+                'id'=>(string)($next['id'] ?? ''),
+                'name'=>(string)($next['name'] ?? ''),
+                'position'=>$cursor < $total ? $cursor + 1 : 0,
+            ],
+        ]);
     }
 
     /** @return array<int,array<string,mixed>>|\WP_Error */
