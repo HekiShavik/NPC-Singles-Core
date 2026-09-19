@@ -269,9 +269,18 @@
     if (status && progress) {
       const processed = Number(progress.processed || 0);
       const total = Number(progress.totalSets || 0);
-      status.textContent = progress.done
-        ? `Færdig · ${Number(progress.indexed || 0).toLocaleString('da-DK')} printings.`
-        : `${processed} / ${total} sæt · ${Number(progress.accepted || 0).toLocaleString('da-DK')} kort behandlet…`;
+      if (progress.done) {
+        status.textContent = `Færdig · ${Number(progress.indexed || 0).toLocaleString('da-DK')} printings.`;
+      } else {
+        const next = progress.nextSet || {};
+        const nextLabel = String(next.name || next.id || '').trim();
+        const nextText = nextLabel ? ` · Næste: ${next.position || processed + 1}/${total} ${nextLabel}` : '';
+        const last = progress.lastStep || null;
+        const timingText = last
+          ? ` · Sidst: ${Number(last.totalMs || 0)} ms (cache ${Number(last.cacheMs || 0)}, DB ${Number(last.dbMs || 0)})`
+          : '';
+        status.textContent = `${processed} / ${total} sæt · ${Number(progress.accepted || 0).toLocaleString('da-DK')} kort behandlet${nextText}${timingText}…`;
+      }
     }
   }
 
