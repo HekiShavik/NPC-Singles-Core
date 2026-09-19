@@ -132,6 +132,20 @@ final class LocalCardIndex
     {
         if (!$rows) return 0;
 
+        $written = 0;
+        foreach (array_chunk($rows, 40) as $chunk) {
+            $chunkWritten = $this->upsertChunk($gameId, $chunk, $syncToken);
+            if ($chunkWritten <= 0) return 0;
+            $written += $chunkWritten;
+        }
+        return $written;
+    }
+
+    /** @param array<int,array<string,mixed>> $rows */
+    private function upsertChunk(string $gameId, array $rows, string $syncToken): int
+    {
+        if (!$rows) return 0;
+
         global $wpdb;
         $table = self::tableName();
         $gameId = sanitize_key($gameId);
