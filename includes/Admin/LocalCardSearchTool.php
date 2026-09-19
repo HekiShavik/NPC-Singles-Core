@@ -212,7 +212,43 @@ final class LocalCardSearchTool
         }
         $cacheMs = (int)round((microtime(true) - $cacheStarted) * 1000);
         if (!($payload['ok'] ?? false)) {
-            wp_send_json_error(['message'=>'Kunne ikke indlæse ' . ($setInfo['name'] ?? $setId) . ': ' . (string)($payload['message'] ?? 'ukendt fejl')], 502);
+            $index = new LocalCardIndex();
+            $preserved = $index->carryForwardSet($gameId, $setId, $token);
+            $failureMessage = 'Kunne ikke indlæse ' . ($setInfo['name'] ?? $setId) . ': ' . (string)($payload['message'] ?? 'ukendt fejl');
+
+            $state['failed_sets'] = is_array($state['failed_sets'] ?? null) ? $state['failed_sets'] : [];
+            $state['failed_sets'][] = [
+                'setId' => $setId,
+                'setName' => (string)($setInfo['name'] ?? ''),
+                'position' => $cursor + 1,
+                'message' => $failureMessage,
+                'preserved' => $preserved,
+            ];
+            $state['last_step'] = [
+                'setId' => $setId,
+                'setName' => (string)($setInfo['name'] ?? ''),
+                'position' => $cursor + 1,
+                'cards' => 0,
+                'rows' => 0,
+                'written' => 0,
+                'cacheMs' => $cacheMs,
+                'rowsMs' => 0,
+                'dbMs' => 0,
+                'totalMs' => (int)round((microtime(true) - $stepStarted) * 1000),
+                'failed' => true,
+                'message' => $failureMessage,
+                'preserved' => $preserved,
+            ];
+            unset($state['active_set']);
+            $state['cursor'] = $cursor + 1;
+            $allState[$gameId] = $state;
+            update_option(self::BUILD_OPTION, $allState, false);
+
+            if ((int)$state['cursor'] >= count($sets)) {
+                self::finishBuild($gameId, $token, $state, $allState);
+                return;
+            }
+            self::sendProgress($gameId, $state, count($sets), false);
         }
 
         $cards = (array)($payload['data']['cards'] ?? []);
@@ -259,7 +295,15 @@ final class LocalCardSearchTool
         $count = $index->count($gameId);
         unset($allState[$gameId]);
         update_option(self::BUILD_OPTION, $allState, false);
-        wp_send_json_success(['token'=>$token, 'processed'=>count((array)($state['sets'] ?? [])), 'totalSets'=>count((array)($state['sets'] ?? [])), 'accepted'=>(int)($state['accepted'] ?? 0), 'indexed'=>$count, 'done'=>true]);
+        wp_send_json_success([
+            'token'=>$token,
+            'processed'=>count((array)($state['sets'] ?? [])),
+            'totalSets'=>count((array)($state['sets'] ?? [])),
+            'accepted'=>(int)($state['accepted'] ?? 0),
+            'indexed'=>$count,
+            'done'=>true,
+            'failedSets'=>is_array($state['failed_sets'] ?? null) ? $state['failed_sets'] : [],
+        ]);
     }
 
     private static function sendProgress(string $gameId, array $state, int $total, bool $done): void
@@ -276,6 +320,7 @@ final class LocalCardSearchTool
             'indexed'=>(new LocalCardIndex())->count($gameId),
             'done'=>$done,
             'lastStep'=>is_array($state['last_step'] ?? null) ? $state['last_step'] : null,
+            'failedSets'=>is_array($state['failed_sets'] ?? null) ? $state['failed_sets'] : [],
             'nextSet'=>[
                 'id'=>(string)($next['id'] ?? ''),
                 'name'=>(string)($next['name'] ?? ''),
