@@ -270,7 +270,10 @@
       const processed = Number(progress.processed || 0);
       const total = Number(progress.totalSets || 0);
       if (progress.done) {
-        status.textContent = `Færdig · ${Number(progress.indexed || 0).toLocaleString('da-DK')} printings.`;
+        const failures = Array.isArray(progress.failedSets) ? progress.failedSets : [];
+        status.textContent = failures.length
+          ? `Færdig med ${failures.length} advarsel(er) · ${Number(progress.indexed || 0).toLocaleString('da-DK')} printings. Fejlede sæt blev bevaret fra eksisterende indeks, hvis de fandtes.`
+          : `Færdig · ${Number(progress.indexed || 0).toLocaleString('da-DK')} printings.`;
       } else {
         const next = progress.nextSet || {};
         const nextLabel = String(next.name || next.id || '').trim();
@@ -279,7 +282,10 @@
         const timingText = last
           ? ` · Sidst: ${Number(last.totalMs || 0)} ms (cache ${Number(last.cacheMs || 0)}, DB ${Number(last.dbMs || 0)})`
           : '';
-        status.textContent = `${processed} / ${total} sæt · ${Number(progress.accepted || 0).toLocaleString('da-DK')} kort behandlet${nextText}${timingText}…`;
+        const failureText = last && last.failed
+          ? ` · ADVARSEL: ${String(last.setName || last.setId || 'sæt')} blev sprunget over`
+          : '';
+        status.textContent = `${processed} / ${total} sæt · ${Number(progress.accepted || 0).toLocaleString('da-DK')} kort behandlet${nextText}${timingText}${failureText}…`;
       }
     }
   }
