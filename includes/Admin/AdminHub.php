@@ -38,14 +38,20 @@ final class AdminHub
         ], admin_url('edit.php'));
     }
 
-    public static function settingsUrl(string $gameId): string
+    public static function settingsUrl(string $gameId, string $area = 'general'): string
     {
         return add_query_arg([
             'post_type' => 'product',
             'page' => self::PAGE_SLUG,
             'tab' => 'settings',
             'game' => sanitize_key($gameId),
+            'area' => sanitize_key($area),
         ], admin_url('edit.php'));
+    }
+
+    public static function globalSettingsUrl(string $area = 'general'): string
+    {
+        return self::settingsUrl('general', $area);
     }
 
     public static function historyUrl(string $gameId): string
@@ -60,11 +66,7 @@ final class AdminHub
 
     public static function dataSourcesUrl(): string
     {
-        return add_query_arg([
-            'post_type' => 'product',
-            'page' => self::PAGE_SLUG,
-            'tab' => 'sources',
-        ], admin_url('edit.php'));
+        return self::globalSettingsUrl('sources');
     }
 
     public function register(AdminRouter $router): void
@@ -94,11 +96,18 @@ final class AdminHub
             return;
         }
 
-        [$section, $gameId] = $this->resolveRequest();
-        if ($section === 'sources') return;
-
+        [$section, $gameId, $area] = $this->resolveRequest();
+        $fallbackRouter = $this->rememberedRouter();
         $router = $this->routers[$gameId] ?? null;
-        if ($router === null) {
+
+        if ($section === 'settings' && $gameId === 'general') {
+            if ($area === 'general' && $fallbackRouter instanceof AdminRouter) {
+                LocalCardSearchTool::enqueue('settings', $fallbackRouter->gameId(), $fallbackRouter->uiPrefix());
+            }
+            return;
+        }
+
+        if (!$router instanceof AdminRouter) {
             return;
         }
 
@@ -110,8 +119,9 @@ final class AdminHub
     {
         if (!current_user_can('manage_woocommerce')) return;
 
-        [$section, $gameId] = $this->resolveRequest();
-        $router = $this->routers[$gameId] ?? ($this->routers ? reset($this->routers) : null);
+        [$section, $gameId, $area] = $this->resolveRequest();
+        $router = $this->routers[$gameId] ?? null;
+        $fallbackRouter = $this->rememberedRouter();
 
         echo '<div class="wrap nps-singles-hub">';
         echo '<h1>Singles</h1>';
@@ -126,34 +136,45 @@ final class AdminHub
             );
         }
 
-        if ($router instanceof AdminRouter) {
+        if ($fallbackRouter instanceof AdminRouter) {
             $imageAlertHidden = ImageRepairHealth::hasMissingImages() ? '' : ' hidden';
+            $settingsTarget = $section === 'settings'
+                ? ($gameId === 'general' ? self::globalSettingsUrl($area) : self::settingsUrl($gameId, $area))
+                : self::settingsUrl($fallbackRouter->gameId(), $fallbackRouter->defaultSettingsArea());
             printf(
                 '<a class="nav-tab%s nps-settings-tab" href="%s">Indstillinger <span class="nps-settings-alert"%s title="Manglende produktbilleder" aria-label="Manglende produktbilleder" style="color:#d63638;margin-left:4px;">●</span></a>',
                 esc_attr($section === 'settings' ? ' nav-tab-active' : ''),
-                esc_url(self::settingsUrl($gameId)),
+                esc_url($settingsTarget),
                 $imageAlertHidden
             );
             printf(
                 '<a class="nav-tab%s" href="%s">Historik</a>',
                 esc_attr($section === 'history' ? ' nav-tab-active' : ''),
-                esc_url(self::historyUrl($gameId))
+                esc_url(self::historyUrl($section === 'history' && $router instanceof AdminRouter ? $gameId : $fallbackRouter->gameId()))
             );
         }
-        printf(
-            '<a class="nav-tab%s" href="%s">Datakilder</a>',
-            esc_attr($section === 'sources' ? ' nav-tab-active' : ''),
-            esc_url(self::dataSourcesUrl())
-        );
         echo '</nav>';
 
-        if (($section === 'settings' || $section === 'history') && $router instanceof AdminRouter) {
-            $this->renderGameSubtabs($section, $gameId);
+        if ($section === 'settings') {
+            $this->renderSettingsGameSubtabs($gameId, $area);
+            if ($router instanceof AdminRouter) {
+                $this->renderSettingsAreaSubtabs($router, $area);
+            }
+        } elseif ($section === 'history' && $router instanceof AdminRouter) {
+            $this->renderHistoryGameSubtabs($gameId);
         }
         echo '</div>';
 
-        if ($section === 'sources') {
-            DataProvidersPage::render();
+        if ($section === 'settings' && $gameId === 'general') {
+            if ($area === 'sources') {
+                DataProvidersPage::render();
+            } else {
+                echo '<div class="wrap">';
+                echo '<h2>Generelle Singles-indstillinger</h2>';
+                ImageRepairHealth::renderSettingsPanel();
+                LocalCardSearchTool::renderSettingsPanel();
+                echo '</div>';
+            }
             return;
         }
 
@@ -163,10 +184,10 @@ final class AdminHub
         }
 
         if ($section === 'settings') {
-            ImageRepairHealth::renderSettingsPanel();
-            LocalCardSearchTool::renderSettingsPanel();
             $router->renderSettings();
-            \NPS\Core\WeightPostProcessor::render($gameId);
+            if ($area === 'general') {
+                \NPS\Core\WeightPostProcessor::render($gameId);
+            }
         } elseif ($section === 'history') {
             $router->renderHistory();
         } else {
@@ -174,14 +195,61 @@ final class AdminHub
         }
     }
 
-    private function renderGameSubtabs(string $section, string $gameId): void
+    private function renderSettingsGameSubtabs(string $gameId, string $area): void
     {
         echo '<ul class="subsubsub" style="float:none;margin:12px 0 8px;">';
         $links = [];
         foreach ($this->sortedRouters() as $id => $router) {
-            $url = $section === 'history' ? self::historyUrl($id) : self::settingsUrl($id);
             $class = $id === $gameId ? ' class="current" aria-current="page"' : '';
-            $links[] = sprintf('<li><a%s href="%s">%s</a></li>', $class, esc_url($url), esc_html($router->gameLabel()));
+            $links[] = sprintf(
+                '<li><a%s href="%s">%s</a></li>',
+                $class,
+                esc_url(self::settingsUrl($id, $router->defaultSettingsArea())),
+                esc_html($router->gameLabel())
+            );
+        }
+
+        $generalClass = $gameId === 'general' && $area === 'general' ? ' class="current" aria-current="page"' : '';
+        $sourcesClass = $gameId === 'general' && $area === 'sources' ? ' class="current" aria-current="page"' : '';
+        $links[] = sprintf('<li><a%s href="%s">Generelt</a></li>', $generalClass, esc_url(self::globalSettingsUrl()));
+        $links[] = sprintf('<li><a%s href="%s">Datakilder</a></li>', $sourcesClass, esc_url(self::dataSourcesUrl()));
+
+        echo implode(' | ', $links);
+        echo '</ul>';
+    }
+
+    private function renderSettingsAreaSubtabs(AdminRouter $router, string $area): void
+    {
+        $areas = $router->settingsAreas();
+        if (count($areas) <= 1) return;
+
+        echo '<ul class="subsubsub" style="float:none;margin:0 0 14px 12px;">';
+        $links = [];
+        foreach ($areas as $id => $label) {
+            $class = $id === $area ? ' class="current" aria-current="page"' : '';
+            $links[] = sprintf(
+                '<li><a%s href="%s">%s</a></li>',
+                $class,
+                esc_url(self::settingsUrl($router->gameId(), $id)),
+                esc_html($label)
+            );
+        }
+        echo implode(' | ', $links);
+        echo '</ul>';
+    }
+
+    private function renderHistoryGameSubtabs(string $gameId): void
+    {
+        echo '<ul class="subsubsub" style="float:none;margin:12px 0 8px;">';
+        $links = [];
+        foreach ($this->sortedRouters() as $id => $router) {
+            $class = $id === $gameId ? ' class="current" aria-current="page"' : '';
+            $links[] = sprintf(
+                '<li><a%s href="%s">%s</a></li>',
+                $class,
+                esc_url(self::historyUrl($id)),
+                esc_html($router->gameLabel())
+            );
         }
         echo implode(' | ', $links);
         echo '</ul>';
@@ -198,7 +266,7 @@ final class AdminHub
         return $routers;
     }
 
-    /** @return array{0:string,1:string} */
+    /** @return array{0:string,1:string,2:string} */
     private function resolveRequest(): array
     {
         $ids = array_keys($this->sortedRouters());
@@ -206,29 +274,61 @@ final class AdminHub
         $remembered = $this->rememberedGameId($first);
         $tab = isset($_GET['tab']) ? sanitize_key(wp_unslash((string)$_GET['tab'])) : '';
 
+        // Backwards compatibility for the old top-level Datakilder tab.
         if ($tab === 'sources') {
-            return ['sources', $remembered];
+            return ['settings', 'general', 'sources'];
         }
 
-        if ($tab === 'settings' || $tab === 'history') {
+        if ($tab === 'settings') {
+            $gameId = isset($_GET['game']) ? sanitize_key(wp_unslash((string)$_GET['game'])) : $remembered;
+            if ($gameId === 'general') {
+                $area = isset($_GET['area']) ? sanitize_key(wp_unslash((string)$_GET['area'])) : 'general';
+                if (!in_array($area, ['general', 'sources'], true)) {
+                    $area = 'general';
+                }
+                return ['settings', 'general', $area];
+            }
+
+            if (!isset($this->routers[$gameId])) {
+                $gameId = $remembered;
+            }
+            $this->rememberGameId($gameId);
+
+            $router = $this->routers[$gameId] ?? null;
+            $area = isset($_GET['area']) ? sanitize_key(wp_unslash((string)$_GET['area'])) : '';
+            if (!$router instanceof AdminRouter || !$router->hasSettingsArea($area)) {
+                $area = $router instanceof AdminRouter ? $router->defaultSettingsArea() : 'general';
+            }
+            return ['settings', $gameId, $area];
+        }
+
+        if ($tab === 'history') {
             $gameId = isset($_GET['game']) ? sanitize_key(wp_unslash((string)$_GET['game'])) : $remembered;
             if (!isset($this->routers[$gameId])) {
                 $gameId = $remembered;
             }
             $this->rememberGameId($gameId);
-            return [$tab, $gameId];
+            return ['history', $gameId, ''];
         }
 
         if ($tab !== '' && isset($this->routers[$tab])) {
             $this->rememberGameId($tab);
-            return ['bulk', $tab];
+            return ['bulk', $tab, ''];
         }
 
         if ($remembered === '' && !$this->routers) {
-            return ['sources', ''];
+            return ['settings', 'general', 'general'];
         }
 
-        return ['bulk', $remembered];
+        return ['bulk', $remembered, ''];
+    }
+
+    private function rememberedRouter(): ?AdminRouter
+    {
+        $ids = array_keys($this->sortedRouters());
+        $first = $ids[0] ?? '';
+        $remembered = $this->rememberedGameId($first);
+        return $this->routers[$remembered] ?? ($this->routers ? reset($this->routers) : null);
     }
 
     private function rememberedGameId(string $fallback): string
