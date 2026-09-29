@@ -54,7 +54,7 @@ final class LocalCardSearchTool
                 'name' => (string)$provider->name(),
                 'count' => $index->count($id),
                 'externalIndex' => !empty($caps['local_card_index']),
-                'settingsUrl' => AdminHub::settingsUrl($id),
+                'settingsUrl' => AdminHub::settingsUrl($id, 'en'),
             ];
         }
 
@@ -91,7 +91,7 @@ final class LocalCardSearchTool
             echo '<td class="nps-card-index__count">' . esc_html(number_format_i18n($count)) . ' printings</td>';
             echo '<td>';
             if ($external) {
-                echo '<a class="button" href="' . esc_url(AdminHub::settingsUrl($gameId)) . '">Åbn ' . esc_html((string)$provider->name()) . ' indstillinger</a>';
+                echo '<a class="button" href="' . esc_url(AdminHub::settingsUrl($gameId, 'en')) . '">Åbn ' . esc_html((string)$provider->name()) . ' indstillinger</a>';
                 echo ' <span class="nps-card-index__status">Søgeindekset opdateres i spillets egne indstillinger.</span>';
             } else {
                 echo '<button type="button" class="button button-primary nps-card-index__rebuild" data-game="' . esc_attr($gameId) . '">Opdatér søgeindeks</button>';
