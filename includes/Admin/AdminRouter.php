@@ -48,6 +48,42 @@ final class AdminRouter
         return sanitize_key((string)($this->config['ui_prefix'] ?? $this->config['ajax_prefix'] ?? $globalName));
     }
 
+    /** @return array<string,string> */
+    public function settingsAreas(): array
+    {
+        $configured = $this->config['settings_areas'] ?? ['general' => 'Generelt'];
+        if (!is_array($configured)) {
+            return ['general' => 'Generelt'];
+        }
+
+        $areas = [];
+        foreach ($configured as $id => $label) {
+            $id = sanitize_key((string)$id);
+            $label = trim((string)$label);
+            if ($id === '' || $label === '') continue;
+            $areas[$id] = $label;
+        }
+
+        return $areas ?: ['general' => 'Generelt'];
+    }
+
+    public function defaultSettingsArea(): string
+    {
+        $configured = sanitize_key((string)($this->config['default_settings_area'] ?? ''));
+        if ($configured !== '' && $this->hasSettingsArea($configured)) {
+            return $configured;
+        }
+
+        $areas = array_keys($this->settingsAreas());
+        return $areas[0] ?? 'general';
+    }
+
+    public function hasSettingsArea(string $area): bool
+    {
+        $area = sanitize_key($area);
+        return $area !== '' && array_key_exists($area, $this->settingsAreas());
+    }
+
     public function renderBulk(): void { $this->adminPage->render(); }
     public function renderSettings(): void { $this->settingsPage->render(); }
     public function renderHistory(): void { $this->historyPage->render(); }
@@ -108,7 +144,7 @@ final class AdminRouter
         }
 
         if ($page === $settingsSlug && $settingsSlug !== '') {
-            wp_safe_redirect(AdminHub::settingsUrl($this->gameId()));
+            wp_safe_redirect(AdminHub::settingsUrl($this->gameId(), $this->defaultSettingsArea()));
             exit;
         }
     }
