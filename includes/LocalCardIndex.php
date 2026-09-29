@@ -106,6 +106,20 @@ final class LocalCardIndex
         ));
     }
 
+    public function carryForwardSet(string $gameId, string $setId, string $syncToken): int
+    {
+        global $wpdb;
+        $table = self::tableName();
+
+        return (int)$wpdb->update(
+            $table,
+            ['sync_token' => $syncToken, 'updated_at' => current_time('mysql', true)],
+            ['game_id' => sanitize_key($gameId), 'set_id' => sanitize_text_field($setId)],
+            ['%s', '%s'],
+            ['%s', '%s']
+        );
+    }
+
     public function pruneOtherSyncs(string $gameId, string $syncToken, string $language = ''): int
     {
         global $wpdb;
@@ -129,6 +143,20 @@ final class LocalCardIndex
 
     /** @param array<int,array<string,mixed>> $rows */
     public function upsertBatch(string $gameId, array $rows, string $syncToken): int
+    {
+        if (!$rows) return 0;
+
+        $written = 0;
+        foreach (array_chunk($rows, 40) as $chunk) {
+            $chunkWritten = $this->upsertChunk($gameId, $chunk, $syncToken);
+            if ($chunkWritten <= 0) return 0;
+            $written += $chunkWritten;
+        }
+        return $written;
+    }
+
+    /** @param array<int,array<string,mixed>> $rows */
+    private function upsertChunk(string $gameId, array $rows, string $syncToken): int
     {
         if (!$rows) return 0;
 
