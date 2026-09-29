@@ -79,7 +79,7 @@ final class DataProviderStore
             provider_id varchar(64) NOT NULL,
             job_key varchar(191) NOT NULL,
             status varchar(32) NOT NULL DEFAULT 'pending',
-            cursor longtext NULL,
+            `cursor` longtext NULL,
             progress_current bigint(20) unsigned NOT NULL DEFAULT 0,
             progress_total bigint(20) unsigned NOT NULL DEFAULT 0,
             context longtext NULL,
