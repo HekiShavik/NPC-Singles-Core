@@ -48,6 +48,13 @@ final class DataProvidersPage
             ];
             self::renderProvider($provider, $settings, $usage, $diagnostics);
         }
+
+        /**
+         * Lets game integrations add coverage diagnostics without making Core
+         * understand provider-specific catalogues or set identities.
+         */
+        do_action('nps_data_sources_after_providers');
+
         echo '</div>';
     }
 
