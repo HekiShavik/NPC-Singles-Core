@@ -337,6 +337,7 @@
 
     const gameSelect = root.querySelector('.nps-card-rarity__game');
     const languageSelect = root.querySelector('.nps-card-rarity__language');
+    const setSelect = root.querySelector('.nps-card-rarity__set');
     const refreshButton = root.querySelector('.nps-card-rarity__refresh');
     const status = root.querySelector('.nps-card-rarity__status');
     const results = root.querySelector('.nps-card-rarity__results');
@@ -346,40 +347,67 @@
       gameSelect.value = String(config.gameId);
     }
 
-    async function refresh(resetLanguage) {
+    async function refresh(resetLanguage, resetSet) {
       const gameId = String(gameSelect.value || '');
       const language = resetLanguage ? '' : String(languageSelect.value || '');
+      const setId = (resetLanguage || resetSet) ? '' : String(setSelect.value || '');
       const thisRequest = ++requestId;
       languageSelect.disabled = true;
+      setSelect.disabled = true;
       refreshButton.disabled = true;
       status.textContent = 'Henter fordeling fra det lokale indeks…';
+
       try {
-        const data = await post('nps_local_card_rarity_summary', { gameId, language });
+        const data = await post('nps_local_card_rarity_summary', { gameId, language, setId });
         if (thisRequest !== requestId) return;
         const languages = Array.isArray(data.languages) ? data.languages : [];
-        languageSelect.innerHTML = languages.map(entry =>
-          '<option value="' + esc(entry.language) + '">' + esc(entry.language || '(uden sprog)') +
-          ' (' + Number(entry.count || 0).toLocaleString('da-DK') + ')</option>'
-        ).join('');
+        languageSelect.innerHTML = languages.length
+          ? languages.map(entry =>
+            '<option value="' + esc(entry.language) + '">' + esc(entry.language || '(uden sprog)') +
+            ' (' + Number(entry.count || 0).toLocaleString('da-DK') + ')</option>'
+          ).join('')
+          : '<option value="">Ingen sprog</option>';
         languageSelect.disabled = languages.length === 0;
         if (data.language) languageSelect.value = String(data.language);
 
+        const sets = Array.isArray(data.sets) ? data.sets : [];
+        setSelect.innerHTML = sets.length
+          ? sets.map(entry =>
+            '<option value="' + esc(entry.set_id) + '">' + esc(entry.set_name || entry.set_id) +
+            ' (' + Number(entry.count || 0).toLocaleString('da-DK') + ')</option>'
+          ).join('')
+          : '<option value="">Ingen sæt i indekset</option>';
+        setSelect.disabled = sets.length === 0;
+        if (data.setId) setSelect.value = String(data.setId);
+
         const rarities = Array.isArray(data.rarities) ? data.rarities : [];
         const total = Number(data.total || 0);
+        const inSetTotal = Number(data.inSetTotal || 0);
+        const registeredTotal = Number(data.registeredTotal || 0);
         if (!rarities.length) {
           results.innerHTML = '<p class="description">Ingen kort er indekseret for dette sprog.</p>';
         } else {
-          results.innerHTML = '<table class="widefat striped"><thead><tr><th>Sjældenhed</th><th class="nps-card-rarity__number">Antal</th><th class="nps-card-rarity__number">Andel</th></tr></thead><tbody>' +
+          results.innerHTML = '<table class="widefat striped"><thead><tr><th>Sjældenhed</th>' +
+            '<th class="nps-card-rarity__number">I sættet</th><th class="nps-card-rarity__number">Registreret</th>' +
+            '<th class="nps-card-rarity__number">Antal</th><th class="nps-card-rarity__number">Andel</th></tr></thead><tbody>' +
             rarities.map(entry => {
               const count = Number(entry.count || 0);
-              const share = total ? (100 * count / total).toLocaleString('da-DK', { maximumFractionDigits: 1 }) : '0';
-              return '<tr><td>' + esc(entry.rarity || 'Ikke angivet') + '</td><td class="nps-card-rarity__number">' +
-                count.toLocaleString('da-DK') + '</td><td class="nps-card-rarity__number">' + share + ' %</td></tr>';
+              const share = total ? (100 * count / total).toLocaleString('da-DK', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0,00';
+              return '<tr><td>' + esc(entry.rarity || 'Ikke angivet') + '</td>' +
+                '<td class="nps-card-rarity__number">' + Number(entry.inSet || 0).toLocaleString('da-DK') + '</td>' +
+                '<td class="nps-card-rarity__number">' + Number(entry.registered || 0).toLocaleString('da-DK') + '</td>' +
+                '<td class="nps-card-rarity__number">' + count.toLocaleString('da-DK') + '</td>' +
+                '<td class="nps-card-rarity__number">' + share + ' %</td></tr>';
             }).join('') +
-            '<tr><th>I alt</th><th class="nps-card-rarity__number">' + total.toLocaleString('da-DK') +
-            '</th><th class="nps-card-rarity__number">100 %</th></tr></tbody></table>';
+            '<tr><th>I alt</th><th class="nps-card-rarity__number">' + inSetTotal.toLocaleString('da-DK') +
+            '</th><th class="nps-card-rarity__number">' + registeredTotal.toLocaleString('da-DK') +
+            '</th><th class="nps-card-rarity__number">' + total.toLocaleString('da-DK') +
+            '</th><th class="nps-card-rarity__number">100,00 %</th></tr></tbody></table>';
         }
-        status.textContent = total.toLocaleString('da-DK') + ' printings · ' + String(data.language || 'intet sprog') + '.';
+        const selectedSet = sets.find(entry => String(entry.set_id) === String(data.setId || ''));
+        status.textContent = (selectedSet ? String(selectedSet.set_name || selectedSet.set_id) + ': ' +
+          registeredTotal.toLocaleString('da-DK') + ' af ' + inSetTotal.toLocaleString('da-DK') + ' unikke kort registreret. · ' : '') +
+          total.toLocaleString('da-DK') + ' printings i hele indekset (' + String(data.language || 'intet sprog') + ').';
       } catch (error) {
         if (thisRequest !== requestId) return;
         results.innerHTML = '';
@@ -387,18 +415,20 @@
       } finally {
         if (thisRequest === requestId) {
           refreshButton.disabled = false;
-          if (languageSelect.options.length) languageSelect.disabled = false;
+          languageSelect.disabled = !Array.from(languageSelect.options).some(option => option.value !== '');
+          setSelect.disabled = !Array.from(setSelect.options).some(option => option.value !== '');
         }
       }
     }
 
-    gameSelect.addEventListener('change', () => refresh(true));
-    languageSelect.addEventListener('change', () => refresh(false));
-    refreshButton.addEventListener('click', () => refresh(false));
+    gameSelect.addEventListener('change', () => refresh(true, true));
+    languageSelect.addEventListener('change', () => refresh(false, true));
+    setSelect.addEventListener('change', () => refresh(false, false));
+    refreshButton.addEventListener('click', () => refresh(false, false));
     document.addEventListener('nps-card-index-updated', event => {
-      if (event.detail && String(event.detail.gameId || '') === String(gameSelect.value || '')) refresh(false);
+      if (event.detail && String(event.detail.gameId || '') === String(gameSelect.value || '')) refresh(false, false);
     });
-    refresh(true);
+    refresh(true, true);
   }
 
   document.addEventListener('DOMContentLoaded', () => {
