@@ -27,6 +27,7 @@ final class LocalCardSearchTool
         self::$booted = true;
 
         add_action('wp_ajax_nps_local_card_search', [self::class, 'ajaxSearch']);
+        add_action('wp_ajax_nps_local_card_rarity_summary', [self::class, 'ajaxRaritySummary']);
         add_action('wp_ajax_nps_local_card_index_start', [self::class, 'ajaxIndexStart']);
         add_action('wp_ajax_nps_local_card_index_step', [self::class, 'ajaxIndexStep']);
     }
@@ -99,7 +100,25 @@ final class LocalCardSearchTool
             }
             echo '</td></tr>';
         }
-        echo '</tbody></table></div>';
+        echo '</tbody></table>';
+
+        echo '<div class="nps-card-rarity" style="max-width:1000px;margin-top:20px;">';
+        echo '<h3>Fordeling efter sjældenhed</h3>';
+        echo '<p class="description">Optælling af printings i det lokale kortindeks, fordelt på spil og sprog. Ikke lagerantal eller oprettede varer.</p>';
+        echo '<div class="nps-card-rarity__filters">';
+        echo '<label for="nps_rarity_game">Spil</label>';
+        echo '<select id="nps_rarity_game" class="nps-card-rarity__game">';
+        foreach ($games as $gameId => $provider) {
+            echo '<option value="' . esc_attr(sanitize_key((string)$gameId)) . '">' . esc_html((string)$provider->name()) . '</option>';
+        }
+        echo '</select>';
+        echo '<label for="nps_rarity_language">Sprog</label>';
+        echo '<select id="nps_rarity_language" class="nps-card-rarity__language" disabled><option value="">Indlæser…</option></select>';
+        echo '<button type="button" class="button nps-card-rarity__refresh">Opdatér</button>';
+        echo '</div>';
+        echo '<p class="nps-card-rarity__status description" aria-live="polite"></p>';
+        echo '<div class="nps-card-rarity__results"></div>';
+        echo '</div></div>';
     }
 
     public static function ajaxSearch(): void
@@ -127,6 +146,28 @@ final class LocalCardSearchTool
             'count' => count($items),
             'indexed' => $index->count($gameId, $language),
             'language' => $language,
+        ]);
+    }
+
+    public static function ajaxRaritySummary(): void
+    {
+        self::assertAjaxAccess();
+        $gameId = self::postedGameId();
+        $index = new LocalCardIndex();
+        $languages = $index->languageCounts($gameId);
+        $available = array_column($languages, 'language');
+        $requested = strtoupper(trim((string)wp_unslash($_POST['language'] ?? '')));
+        $language = in_array($requested, $available, true)
+            ? $requested
+            : (in_array('EN', $available, true) ? 'EN' : ($available[0] ?? ''));
+
+        $rows = $language !== '' ? $index->rarityCounts($gameId, $language) : [];
+        wp_send_json_success([
+            'gameId' => $gameId,
+            'language' => $language,
+            'languages' => $languages,
+            'rarities' => $rows,
+            'total' => array_sum(array_column($rows, 'count')),
         ]);
     }
 
