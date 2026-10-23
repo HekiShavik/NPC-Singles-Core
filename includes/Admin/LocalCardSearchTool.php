@@ -104,7 +104,7 @@ final class LocalCardSearchTool
 
         echo '<div class="nps-card-rarity" style="max-width:1000px;margin-top:20px;">';
         echo '<h3>Fordeling efter sjældenhed</h3>';
-        echo '<p class="description">Optælling af printings i det lokale kortindeks, fordelt på spil og sprog. Ikke lagerantal eller oprettede varer.</p>';
+        echo '<p class="description">I sættet: unikke kort i det valgte sæt. Registreret: unikke kort med mindst ét oprettet WooCommerce-produkt (uanset finish og lager). Antal og Andel: hele spillets kortindeks for sproget.</p>';
         echo '<div class="nps-card-rarity__filters">';
         echo '<label for="nps_rarity_game">Spil</label>';
         echo '<select id="nps_rarity_game" class="nps-card-rarity__game">';
@@ -114,6 +114,8 @@ final class LocalCardSearchTool
         echo '</select>';
         echo '<label for="nps_rarity_language">Sprog</label>';
         echo '<select id="nps_rarity_language" class="nps-card-rarity__language" disabled><option value="">Indlæser…</option></select>';
+        echo '<label for="nps_rarity_set">Sæt</label>';
+        echo '<select id="nps_rarity_set" class="nps-card-rarity__set" disabled><option value="">Indlæser…</option></select>';
         echo '<button type="button" class="button nps-card-rarity__refresh">Opdatér</button>';
         echo '</div>';
         echo '<p class="nps-card-rarity__status description" aria-live="polite"></p>';
@@ -153,6 +155,7 @@ final class LocalCardSearchTool
     {
         self::assertAjaxAccess();
         $gameId = self::postedGameId();
+        $provider = self::providerOrFail($gameId);
         $index = new LocalCardIndex();
         $languages = $index->languageCounts($gameId);
         $available = array_column($languages, 'language');
@@ -162,12 +165,35 @@ final class LocalCardSearchTool
             : (in_array('EN', $available, true) ? 'EN' : ($available[0] ?? ''));
 
         $rows = $language !== '' ? $index->rarityCounts($gameId, $language) : [];
+        $sets = $language !== '' ? $index->setsForLanguage($gameId, $language) : [];
+        $setIds = array_column($sets, 'set_id');
+        $requestedSet = trim((string)wp_unslash($_POST['setId'] ?? ''));
+        $setId = in_array($requestedSet, $setIds, true) ? $requestedSet : ($setIds[0] ?? '');
+
+        $inSet = $setId !== '' ? $index->uniqueSetRarityCounts($gameId, $language, $setId) : [];
+        $registered = $setId !== ''
+            ? $index->registeredSetRarityCounts($gameId, $language, $setId, $provider->metaKeys())
+            : [];
+        $setCounts = array_column($inSet, 'count', 'rarity');
+        $registeredCounts = array_column($registered, 'count', 'rarity');
+
+        foreach ($rows as &$row) {
+            $rarity = $row['rarity'];
+            $row['inSet'] = (int)($setCounts[$rarity] ?? 0);
+            $row['registered'] = (int)($registeredCounts[$rarity] ?? 0);
+        }
+        unset($row);
+
         wp_send_json_success([
             'gameId' => $gameId,
             'language' => $language,
             'languages' => $languages,
+            'sets' => $sets,
+            'setId' => $setId,
             'rarities' => $rows,
             'total' => array_sum(array_column($rows, 'count')),
+            'inSetTotal' => array_sum(array_column($inSet, 'count')),
+            'registeredTotal' => array_sum(array_column($registered, 'count')),
         ]);
     }
 
