@@ -172,8 +172,9 @@ final class LocalCardIndex
     }
 
     /**
-     * Count unique indexed cards in the selected set that have at least one
-     * existing WooCommerce product. One product per finish must not inflate it.
+     * Count unique indexed cards that have at least one existing product.
+     * Match the Singles UI by card ID and language; set identity is taken
+     * from the indexed card, so old products without set meta still count.
      *
      * @param array<string,string> $metaKeys Logical field => product meta key.
      * @return array<int,array{rarity:string,count:int}>
@@ -182,8 +183,7 @@ final class LocalCardIndex
     {
         $cardMeta = (string)($metaKeys['card_id'] ?? '');
         $languageMeta = (string)($metaKeys['language'] ?? '');
-        $setMeta = (string)($metaKeys['set_id'] ?? '');
-        if ($cardMeta === '' || $languageMeta === '' || $setMeta === '' || $setId === '') return [];
+        if ($cardMeta === '' || $languageMeta === '' || $setId === '') return [];
 
         global $wpdb;
         $table = self::tableName();
@@ -197,15 +197,14 @@ final class LocalCardIndex
                  AND product.post_status IN ('publish', 'draft', 'pending', 'private', 'future')
              INNER JOIN {$wpdb->postmeta} lm
                  ON lm.post_id = product.ID AND lm.meta_key = %s
-                 AND UPPER(TRIM(lm.meta_value)) = idx.language
-             INNER JOIN {$wpdb->postmeta} sm
-                 ON sm.post_id = product.ID AND sm.meta_key = %s
-                 AND sm.meta_value = idx.set_id
+                 AND (
+                     UPPER(TRIM(lm.meta_value)) = idx.language
+                     OR (idx.language = 'JA' AND UPPER(TRIM(lm.meta_value)) = 'JP')
+                 )
              WHERE idx.game_id = %s AND idx.language = %s AND idx.set_id = %s
              GROUP BY idx.rarity",
             $cardMeta,
             $languageMeta,
-            $setMeta,
             sanitize_key($gameId),
             $this->language($language),
             $setId
