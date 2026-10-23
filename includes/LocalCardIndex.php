@@ -87,6 +87,47 @@ final class LocalCardIndex
         ));
     }
 
+    /** @return array<int,array{language:string,count:int}> */
+    public function languageCounts(string $gameId): array
+    {
+        global $wpdb;
+        $table = self::tableName();
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT language, COUNT(*) AS total
+             FROM {$table}
+             WHERE game_id = %s
+             GROUP BY language
+             ORDER BY language ASC",
+            sanitize_key($gameId)
+        ), ARRAY_A);
+
+        return array_map(static fn(array $row): array => [
+            'language' => (string)($row['language'] ?? ''),
+            'count' => (int)($row['total'] ?? 0),
+        ], is_array($rows) ? $rows : []);
+    }
+
+    /** @return array<int,array{rarity:string,count:int}> */
+    public function rarityCounts(string $gameId, string $language): array
+    {
+        global $wpdb;
+        $table = self::tableName();
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT rarity, COUNT(*) AS total
+             FROM {$table}
+             WHERE game_id = %s AND language = %s
+             GROUP BY rarity
+             ORDER BY total DESC, rarity ASC",
+            sanitize_key($gameId),
+            $this->language($language)
+        ), ARRAY_A);
+
+        return array_map(static fn(array $row): array => [
+            'rarity' => (string)($row['rarity'] ?? ''),
+            'count' => (int)($row['total'] ?? 0),
+        ], is_array($rows) ? $rows : []);
+    }
+
     public function clear(string $gameId, string $language = ''): int
     {
         global $wpdb;
