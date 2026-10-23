@@ -321,6 +321,7 @@
             progress = await post('nps_local_card_index_step', { gameId, token });
             updateIndexRow(gameId, progress);
           }
+          document.dispatchEvent(new CustomEvent('nps-card-index-updated', { detail: { gameId } }));
         } catch (error) {
           if (status) status.textContent = error.message || 'Indeksering fejlede.';
         } finally {
@@ -330,11 +331,82 @@
     });
   }
 
+  function wireRaritySummary() {
+    const root = document.querySelector('.nps-card-rarity');
+    if (!root) return;
+
+    const gameSelect = root.querySelector('.nps-card-rarity__game');
+    const languageSelect = root.querySelector('.nps-card-rarity__language');
+    const refreshButton = root.querySelector('.nps-card-rarity__refresh');
+    const status = root.querySelector('.nps-card-rarity__status');
+    const results = root.querySelector('.nps-card-rarity__results');
+    let requestId = 0;
+
+    if (Array.from(gameSelect.options).some(option => option.value === String(config.gameId || ''))) {
+      gameSelect.value = String(config.gameId);
+    }
+
+    async function refresh(resetLanguage) {
+      const gameId = String(gameSelect.value || '');
+      const language = resetLanguage ? '' : String(languageSelect.value || '');
+      const thisRequest = ++requestId;
+      languageSelect.disabled = true;
+      refreshButton.disabled = true;
+      status.textContent = 'Henter fordeling fra det lokale indeks…';
+      try {
+        const data = await post('nps_local_card_rarity_summary', { gameId, language });
+        if (thisRequest !== requestId) return;
+        const languages = Array.isArray(data.languages) ? data.languages : [];
+        languageSelect.innerHTML = languages.map(entry =>
+          '<option value="' + esc(entry.language) + '">' + esc(entry.language || '(uden sprog)') +
+          ' (' + Number(entry.count || 0).toLocaleString('da-DK') + ')</option>'
+        ).join('');
+        languageSelect.disabled = languages.length === 0;
+        if (data.language) languageSelect.value = String(data.language);
+
+        const rarities = Array.isArray(data.rarities) ? data.rarities : [];
+        const total = Number(data.total || 0);
+        if (!rarities.length) {
+          results.innerHTML = '<p class="description">Ingen kort er indekseret for dette sprog.</p>';
+        } else {
+          results.innerHTML = '<table class="widefat striped"><thead><tr><th>Sjældenhed</th><th class="nps-card-rarity__number">Antal</th><th class="nps-card-rarity__number">Andel</th></tr></thead><tbody>' +
+            rarities.map(entry => {
+              const count = Number(entry.count || 0);
+              const share = total ? (100 * count / total).toLocaleString('da-DK', { maximumFractionDigits: 1 }) : '0';
+              return '<tr><td>' + esc(entry.rarity || 'Ikke angivet') + '</td><td class="nps-card-rarity__number">' +
+                count.toLocaleString('da-DK') + '</td><td class="nps-card-rarity__number">' + share + ' %</td></tr>';
+            }).join('') +
+            '<tr><th>I alt</th><th class="nps-card-rarity__number">' + total.toLocaleString('da-DK') +
+            '</th><th class="nps-card-rarity__number">100 %</th></tr></tbody></table>';
+        }
+        status.textContent = total.toLocaleString('da-DK') + ' printings · ' + String(data.language || 'intet sprog') + '.';
+      } catch (error) {
+        if (thisRequest !== requestId) return;
+        results.innerHTML = '';
+        status.textContent = error.message || 'Kunne ikke hente fordelingen.';
+      } finally {
+        if (thisRequest === requestId) {
+          refreshButton.disabled = false;
+          if (languageSelect.options.length) languageSelect.disabled = false;
+        }
+      }
+    }
+
+    gameSelect.addEventListener('change', () => refresh(true));
+    languageSelect.addEventListener('change', () => refresh(false));
+    refreshButton.addEventListener('click', () => refresh(false));
+    document.addEventListener('nps-card-index-updated', event => {
+      if (event.detail && String(event.detail.gameId || '') === String(gameSelect.value || '')) refresh(false);
+    });
+    refresh(true);
+  }
+
   document.addEventListener('DOMContentLoaded', () => {
     if (String(config.mode || '') === 'bulk') wireSearch();
     if (String(config.mode || '') === 'settings') {
       clarifyExternalIndexRows();
       wireIndexSettings();
+      wireRaritySummary();
     }
   });
 })();
