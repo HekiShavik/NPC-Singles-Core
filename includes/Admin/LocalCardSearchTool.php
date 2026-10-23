@@ -104,7 +104,7 @@ final class LocalCardSearchTool
 
         echo '<div class="nps-card-rarity" style="max-width:1000px;margin-top:20px;">';
         echo '<h3>Fordeling efter sjældenhed</h3>';
-        echo '<p class="description">I sættet: unikke kort i det valgte sæt. Registreret: unikke kort med mindst ét oprettet WooCommerce-produkt (uanset finish og lager). Antal og Andel: hele spillets kortindeks for sproget.</p>';
+        echo '<p class="description">I sættet: unikke kort i det valgte sæt. Registreret: unikke kort med mindst ét WooCommerce-produkt. Finishkolonnerne viser oprettede varianter særskilt (samme kort kan tælle i flere finishkolonner). Antal og Andel: hele spillets kortindeks for sproget.</p>';
         echo '<div class="nps-card-rarity__filters">';
         echo '<label for="nps_rarity_game">Spil</label>';
         echo '<select id="nps_rarity_game" class="nps-card-rarity__game">';
@@ -170,17 +170,70 @@ final class LocalCardSearchTool
         $requestedSet = trim((string)wp_unslash($_POST['setId'] ?? ''));
         $setId = in_array($requestedSet, $setIds, true) ? $requestedSet : ($setIds[0] ?? '');
 
+        $finishClass = (string)($provider->config()['finish_provider_class'] ?? '');
+        $normalizeFinish = static function (string $finish) use ($finishClass): string {
+            $finish = trim($finish);
+            if ($finish === '') return '';
+            return $finishClass !== '' && method_exists($finishClass, 'canonical')
+                ? (string)$finishClass::canonical($finish)
+                : strtolower($finish);
+        };
+        $finishLabel = static function (string $finish) use ($finishClass): string {
+            if ($finish === '__unspecified') return 'Uden finish';
+            return $finishClass !== '' && method_exists($finishClass, 'finish_label')
+                ? (string)$finishClass::finish_label($finish)
+                : ucfirst(str_replace('_', ' ', $finish));
+        };
+
         $inSet = $setId !== '' ? $index->uniqueSetRarityCounts($gameId, $language, $setId) : [];
         $registered = $setId !== ''
-            ? $index->registeredSetRarityCounts($gameId, $language, $setId, $provider->metaKeys())
+            ? $index->registeredSetRarityCounts($gameId, $language, $setId, $provider->metaKeys(), $normalizeFinish)
             : [];
         $setCounts = array_column($inSet, 'count', 'rarity');
         $registeredCounts = array_column($registered, 'count', 'rarity');
+        $registeredFinishes = array_column($registered, 'finishes', 'rarity');
+
+        // Show finishes that exist in the set even when nothing has been created.
+        $finishKeys = [];
+        if ($setId !== '') {
+            foreach ($index->setFinishKeys($gameId, $language, $setId) as $raw) {
+                $canonical = $normalizeFinish($raw);
+                if ($canonical !== '') $finishKeys[$canonical] = true;
+            }
+        }
+        if ($gameId === 'lorcana') {
+            // Lorcana's two normal finish choices should always have columns.
+            $finishKeys['normal'] = true;
+            $finishKeys['foil'] = true;
+        }
+        foreach ($registered as $group) {
+            foreach ((array)($group['finishes'] ?? []) as $finish => $count) {
+                $finishKeys[(string)$finish] = true;
+            }
+        }
+        $finishKeys = array_keys($finishKeys);
+        usort($finishKeys, static function (string $a, string $b): int {
+            $rank = static fn(string $key): int => in_array($key, ['normal', 'nonfoil', 'standard'], true) ? 0
+                : (in_array($key, ['foil', 'standard_foil'], true) ? 1 : 2);
+            return ($rank($a) <=> $rank($b)) ?: strnatcasecmp($a, $b);
+        });
+
+        $finishColumns = [];
+        $finishTotals = array_fill_keys($finishKeys, 0);
+        foreach ($finishKeys as $finish) {
+            $finishColumns[] = ['key' => $finish, 'label' => $finishLabel($finish)];
+        }
 
         foreach ($rows as &$row) {
             $rarity = $row['rarity'];
             $row['inSet'] = (int)($setCounts[$rarity] ?? 0);
             $row['registered'] = (int)($registeredCounts[$rarity] ?? 0);
+            $counts = [];
+            foreach ($finishKeys as $finish) {
+                $counts[$finish] = (int)($registeredFinishes[$rarity][$finish] ?? 0);
+                $finishTotals[$finish] += $counts[$finish];
+            }
+            $row['finishCounts'] = $counts;
         }
         unset($row);
 
@@ -191,6 +244,8 @@ final class LocalCardSearchTool
             'sets' => $sets,
             'setId' => $setId,
             'rarities' => $rows,
+            'finishes' => $finishColumns,
+            'finishTotals' => $finishTotals,
             'total' => array_sum(array_column($rows, 'count')),
             'inSetTotal' => array_sum(array_column($inSet, 'count')),
             'registeredTotal' => array_sum(array_column($registered, 'count')),
