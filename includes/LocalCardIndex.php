@@ -87,6 +87,196 @@ final class LocalCardIndex
         ));
     }
 
+    /** @return array<int,array{language:string,count:int}> */
+    public function languageCounts(string $gameId): array
+    {
+        global $wpdb;
+        $table = self::tableName();
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT language, COUNT(*) AS total
+             FROM {$table}
+             WHERE game_id = %s
+             GROUP BY language
+             ORDER BY language ASC",
+            sanitize_key($gameId)
+        ), ARRAY_A);
+
+        return array_map(static fn(array $row): array => [
+            'language' => (string)($row['language'] ?? ''),
+            'count' => (int)($row['total'] ?? 0),
+        ], is_array($rows) ? $rows : []);
+    }
+
+    /** @return array<int,array{rarity:string,count:int}> */
+    public function rarityCounts(string $gameId, string $language): array
+    {
+        global $wpdb;
+        $table = self::tableName();
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT rarity, COUNT(*) AS total
+             FROM {$table}
+             WHERE game_id = %s AND language = %s
+             GROUP BY rarity
+             ORDER BY total DESC, rarity ASC",
+            sanitize_key($gameId),
+            $this->language($language)
+        ), ARRAY_A);
+
+        return array_map(static fn(array $row): array => [
+            'rarity' => (string)($row['rarity'] ?? ''),
+            'count' => (int)($row['total'] ?? 0),
+        ], is_array($rows) ? $rows : []);
+    }
+
+    /** @return array<int,array{set_id:string,set_name:string,count:int}> */
+    public function setsForLanguage(string $gameId, string $language): array
+    {
+        global $wpdb;
+        $table = self::tableName();
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT set_id, MAX(set_name) AS set_name, COUNT(DISTINCT card_id) AS total
+             FROM {$table}
+             WHERE game_id = %s AND language = %s AND set_id <> ''
+             GROUP BY set_id
+             ORDER BY MAX(release_date) DESC, set_name ASC, set_id ASC",
+            sanitize_key($gameId),
+            $this->language($language)
+        ), ARRAY_A);
+
+        return array_map(static fn(array $row): array => [
+            'set_id' => (string)($row['set_id'] ?? ''),
+            'set_name' => (string)($row['set_name'] ?? ''),
+            'count' => (int)($row['total'] ?? 0),
+        ], is_array($rows) ? $rows : []);
+    }
+
+    /** @return array<int,array{rarity:string,count:int}> */
+    public function uniqueSetRarityCounts(string $gameId, string $language, string $setId): array
+    {
+        global $wpdb;
+        $table = self::tableName();
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT rarity, COUNT(DISTINCT card_id) AS total
+             FROM {$table}
+             WHERE game_id = %s AND language = %s AND set_id = %s
+             GROUP BY rarity",
+            sanitize_key($gameId),
+            $this->language($language),
+            $setId
+        ), ARRAY_A);
+
+        return array_map(static fn(array $row): array => [
+            'rarity' => (string)($row['rarity'] ?? ''),
+            'count' => (int)($row['total'] ?? 0),
+        ], is_array($rows) ? $rows : []);
+    }
+
+    /**
+     * Finish variants declared by the indexed cards in one set. These are
+     * available variants, not necessarily products already created in Woo.
+     *
+     * @return array<int,string>
+     */
+    public function setFinishKeys(string $gameId, string $language, string $setId): array
+    {
+        global $wpdb;
+        $table = self::tableName();
+        $jsonRows = $wpdb->get_col($wpdb->prepare(
+            "SELECT DISTINCT finishes FROM {$table}
+             WHERE game_id = %s AND language = %s AND set_id = %s",
+            sanitize_key($gameId),
+            $this->language($language),
+            $setId
+        ));
+
+        $keys = [];
+        foreach ((array)$jsonRows as $json) {
+            $finishes = json_decode((string)$json, true);
+            if (!is_array($finishes)) continue;
+            foreach ($finishes as $finish) {
+                if (!is_scalar($finish)) continue;
+                $finish = trim((string)$finish);
+                if ($finish !== '') $keys[$finish] = true;
+            }
+        }
+        return array_keys($keys);
+    }
+
+    /**
+     * One registered card may have multiple product finishes. Count each card
+     * once overall, and once separately for every registered finish. Canonical
+     * game-specific finish keys are supplied by the game provider.
+     *
+     * @param array<string,string> $metaKeys Logical field => product meta key.
+     * @param callable(string):string $normalizeFinish
+     * @return array<int,array{rarity:string,count:int,finishes:array<string,int>}>
+     */
+    public function registeredSetRarityCounts(
+        string $gameId,
+        string $language,
+        string $setId,
+        array $metaKeys,
+        callable $normalizeFinish
+    ): array {
+        $cardMeta = (string)($metaKeys['card_id'] ?? '');
+        $languageMeta = (string)($metaKeys['language'] ?? '');
+        $finishMeta = (string)($metaKeys['finish'] ?? '');
+        if ($cardMeta === '' || $languageMeta === '' || $finishMeta === '' || $setId === '') return [];
+
+        global $wpdb;
+        $table = self::tableName();
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT DISTINCT idx.rarity, idx.card_id, fm.meta_value AS finish
+             FROM {$table} idx
+             INNER JOIN {$wpdb->postmeta} cm
+                 ON cm.meta_key = %s AND cm.meta_value = idx.card_id
+             INNER JOIN {$wpdb->posts} product
+                 ON product.ID = cm.post_id AND product.post_type = 'product'
+                 AND product.post_status IN ('publish', 'draft', 'pending', 'private', 'future')
+             INNER JOIN {$wpdb->postmeta} lm
+                 ON lm.post_id = product.ID AND lm.meta_key = %s
+                 AND (
+                     UPPER(TRIM(lm.meta_value)) = idx.language
+                     OR (idx.language = 'JA' AND UPPER(TRIM(lm.meta_value)) = 'JP')
+                 )
+             LEFT JOIN {$wpdb->postmeta} fm
+                 ON fm.post_id = product.ID AND fm.meta_key = %s
+             WHERE idx.game_id = %s AND idx.language = %s AND idx.set_id = %s",
+            $cardMeta,
+            $languageMeta,
+            $finishMeta,
+            sanitize_key($gameId),
+            $this->language($language),
+            $setId
+        ), ARRAY_A);
+
+        $cards = [];
+        $byFinish = [];
+        foreach (is_array($rows) ? $rows : [] as $row) {
+            $rarity = (string)($row['rarity'] ?? '');
+            $cardId = (string)($row['card_id'] ?? '');
+            if ($cardId === '') continue;
+            $cards[$rarity][$cardId] = true;
+            $finish = trim((string)$normalizeFinish((string)($row['finish'] ?? '')));
+            if ($finish === '') $finish = '__unspecified';
+            $byFinish[$rarity][$finish][$cardId] = true;
+        }
+
+        $result = [];
+        foreach ($cards as $rarity => $cardIds) {
+            $finishes = [];
+            foreach (($byFinish[$rarity] ?? []) as $finish => $ids) {
+                $finishes[$finish] = count($ids);
+            }
+            $result[] = [
+                'rarity' => (string)$rarity,
+                'count' => count($cardIds),
+                'finishes' => $finishes,
+            ];
+        }
+        return $result;
+    }
+
     public function clear(string $gameId, string $language = ''): int
     {
         global $wpdb;
