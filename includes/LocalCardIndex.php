@@ -128,6 +128,95 @@ final class LocalCardIndex
         ], is_array($rows) ? $rows : []);
     }
 
+    /** @return array<int,array{set_id:string,set_name:string,count:int}> */
+    public function setsForLanguage(string $gameId, string $language): array
+    {
+        global $wpdb;
+        $table = self::tableName();
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT set_id, MAX(set_name) AS set_name, COUNT(DISTINCT card_id) AS total
+             FROM {$table}
+             WHERE game_id = %s AND language = %s AND set_id <> ''
+             GROUP BY set_id
+             ORDER BY MAX(release_date) DESC, set_name ASC, set_id ASC",
+            sanitize_key($gameId),
+            $this->language($language)
+        ), ARRAY_A);
+
+        return array_map(static fn(array $row): array => [
+            'set_id' => (string)($row['set_id'] ?? ''),
+            'set_name' => (string)($row['set_name'] ?? ''),
+            'count' => (int)($row['total'] ?? 0),
+        ], is_array($rows) ? $rows : []);
+    }
+
+    /** @return array<int,array{rarity:string,count:int}> */
+    public function uniqueSetRarityCounts(string $gameId, string $language, string $setId): array
+    {
+        global $wpdb;
+        $table = self::tableName();
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT rarity, COUNT(DISTINCT card_id) AS total
+             FROM {$table}
+             WHERE game_id = %s AND language = %s AND set_id = %s
+             GROUP BY rarity",
+            sanitize_key($gameId),
+            $this->language($language),
+            $setId
+        ), ARRAY_A);
+
+        return array_map(static fn(array $row): array => [
+            'rarity' => (string)($row['rarity'] ?? ''),
+            'count' => (int)($row['total'] ?? 0),
+        ], is_array($rows) ? $rows : []);
+    }
+
+    /**
+     * Count unique indexed cards in the selected set that have at least one
+     * existing WooCommerce product. One product per finish must not inflate it.
+     *
+     * @param array<string,string> $metaKeys Logical field => product meta key.
+     * @return array<int,array{rarity:string,count:int}>
+     */
+    public function registeredSetRarityCounts(string $gameId, string $language, string $setId, array $metaKeys): array
+    {
+        $cardMeta = (string)($metaKeys['card_id'] ?? '');
+        $languageMeta = (string)($metaKeys['language'] ?? '');
+        $setMeta = (string)($metaKeys['set_id'] ?? '');
+        if ($cardMeta === '' || $languageMeta === '' || $setMeta === '' || $setId === '') return [];
+
+        global $wpdb;
+        $table = self::tableName();
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT idx.rarity, COUNT(DISTINCT idx.card_id) AS total
+             FROM {$table} idx
+             INNER JOIN {$wpdb->postmeta} cm
+                 ON cm.meta_key = %s AND cm.meta_value = idx.card_id
+             INNER JOIN {$wpdb->posts} product
+                 ON product.ID = cm.post_id AND product.post_type = 'product'
+                 AND product.post_status IN ('publish', 'draft', 'pending', 'private', 'future')
+             INNER JOIN {$wpdb->postmeta} lm
+                 ON lm.post_id = product.ID AND lm.meta_key = %s
+                 AND UPPER(TRIM(lm.meta_value)) = idx.language
+             INNER JOIN {$wpdb->postmeta} sm
+                 ON sm.post_id = product.ID AND sm.meta_key = %s
+                 AND sm.meta_value = idx.set_id
+             WHERE idx.game_id = %s AND idx.language = %s AND idx.set_id = %s
+             GROUP BY idx.rarity",
+            $cardMeta,
+            $languageMeta,
+            $setMeta,
+            sanitize_key($gameId),
+            $this->language($language),
+            $setId
+        ), ARRAY_A);
+
+        return array_map(static fn(array $row): array => [
+            'rarity' => (string)($row['rarity'] ?? ''),
+            'count' => (int)($row['total'] ?? 0),
+        ], is_array($rows) ? $rows : []);
+    }
+
     public function clear(string $gameId, string $language = ''): int
     {
         global $wpdb;
