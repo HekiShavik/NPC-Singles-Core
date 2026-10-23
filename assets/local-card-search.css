@@ -154,3 +154,38 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Indexed rarity distribution and per-set registration summary. */
+.nps-card-rarity__filters {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.nps-card-rarity__filters label {
+  font-weight: 600;
+}
+
+.nps-card-rarity__filters select {
+  max-width: 100%;
+}
+
+.nps-card-rarity__set {
+  min-width: 200px;
+  max-width: 400px;
+}
+
+.nps-card-rarity__results {
+  overflow-x: auto;
+}
+
+.nps-card-rarity__results .nps-card-rarity__number {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.nps-card-rarity__results table {
+  min-width: 550px;
+}
