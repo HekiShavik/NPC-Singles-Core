@@ -381,28 +381,47 @@
         if (data.setId) setSelect.value = String(data.setId);
 
         const rarities = Array.isArray(data.rarities) ? data.rarities : [];
+        const finishes = Array.isArray(data.finishes) ? data.finishes : [];
+        const finishTotals = data.finishTotals && typeof data.finishTotals === 'object' ? data.finishTotals : {};
         const total = Number(data.total || 0);
         const inSetTotal = Number(data.inSetTotal || 0);
         const registeredTotal = Number(data.registeredTotal || 0);
         if (!rarities.length) {
           results.innerHTML = '<p class="description">Ingen kort er indekseret for dette sprog.</p>';
         } else {
+          const finishHeaders = finishes.map(finish =>
+            '<th class="nps-card-rarity__number">' + esc(finish.label || finish.key) + '</th>'
+          ).join('');
+          const body = rarities.map(entry => {
+            const count = Number(entry.count || 0);
+            const share = total ? (100 * count / total).toLocaleString('da-DK', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0,00';
+            const finishCounts = entry.finishCounts && typeof entry.finishCounts === 'object' ? entry.finishCounts : {};
+            const cells = finishes.map(finish =>
+              '<td class="nps-card-rarity__number">' +
+                Number(finishCounts[finish.key] || 0).toLocaleString('da-DK') + '</td>'
+            ).join('');
+            return '<tr><td>' + esc(entry.rarity || 'Ikke angivet') + '</td>' +
+              '<td class="nps-card-rarity__number">' + Number(entry.inSet || 0).toLocaleString('da-DK') + '</td>' +
+              '<td class="nps-card-rarity__number">' + Number(entry.registered || 0).toLocaleString('da-DK') + '</td>' +
+              cells +
+              '<td class="nps-card-rarity__number">' + count.toLocaleString('da-DK') + '</td>' +
+              '<td class="nps-card-rarity__number">' + share + ' %</td></tr>';
+          }).join('');
+          const finishFooter = finishes.map(finish =>
+            '<th class="nps-card-rarity__number">' +
+              Number(finishTotals[finish.key] || 0).toLocaleString('da-DK') + '</th>'
+          ).join('');
           results.innerHTML = '<table class="widefat striped"><thead><tr><th>Sjældenhed</th>' +
             '<th class="nps-card-rarity__number">I sættet</th><th class="nps-card-rarity__number">Registreret</th>' +
+            finishHeaders +
             '<th class="nps-card-rarity__number">Antal</th><th class="nps-card-rarity__number">Andel</th></tr></thead><tbody>' +
-            rarities.map(entry => {
-              const count = Number(entry.count || 0);
-              const share = total ? (100 * count / total).toLocaleString('da-DK', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0,00';
-              return '<tr><td>' + esc(entry.rarity || 'Ikke angivet') + '</td>' +
-                '<td class="nps-card-rarity__number">' + Number(entry.inSet || 0).toLocaleString('da-DK') + '</td>' +
-                '<td class="nps-card-rarity__number">' + Number(entry.registered || 0).toLocaleString('da-DK') + '</td>' +
-                '<td class="nps-card-rarity__number">' + count.toLocaleString('da-DK') + '</td>' +
-                '<td class="nps-card-rarity__number">' + share + ' %</td></tr>';
-            }).join('') +
+            body +
             '<tr><th>I alt</th><th class="nps-card-rarity__number">' + inSetTotal.toLocaleString('da-DK') +
             '</th><th class="nps-card-rarity__number">' + registeredTotal.toLocaleString('da-DK') +
-            '</th><th class="nps-card-rarity__number">' + total.toLocaleString('da-DK') +
-            '</th><th class="nps-card-rarity__number">100,00 %</th></tr></tbody></table>';
+            '</th>' + finishFooter +
+            '<th class="nps-card-rarity__number">' + total.toLocaleString('da-DK') +
+            '</th><th class="nps-card-rarity__number">100,00 %</th></tr></tbody></table>' +
+            '<p class="description">Finishkolonnerne tæller unikke kort inden for hver variant. Et kort med både Normal og Foil tæller i begge kolonner, men kun én gang under Registreret.</p>';
         }
         const selectedSet = sets.find(entry => String(entry.set_id) === String(data.setId || ''));
         status.textContent = (selectedSet ? String(selectedSet.set_name || selectedSet.set_id) + ': ' +
